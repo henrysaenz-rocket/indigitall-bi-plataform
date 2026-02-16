@@ -1,0 +1,23 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: public
+    description: Raw data from CSV seed / n8n API ingestion
+    tables:
+      - name: messages
+        description: WhatsApp message records
+      - name: contacts
+        description: Contact records derived from messages
+      - name: agents
+        description: Agent performance records
+      - name: daily_stats
+        description: Daily aggregated statistics
+      - name: toques_daily
+        description: Daily campaign touch data
+      - name: campaigns
+        description: Campaign summary data
+      - name: toques_heatmap
+        description: Heatmap data (day x hour)
+      - name: toques_usuario
+        description: Per-user campaign touch data

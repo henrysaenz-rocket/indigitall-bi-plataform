@@ -1,0 +1,163 @@
+version: "3.8"
+
+services:
+  # ============================================
+  # PostgreSQL (Supabase's database)
+  # ============================================
+  db:
+    image: supabase/postgres:15.8.1.060
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your-super-secret-password}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - indigitall-net
+
+  # ============================================
+  # PostgREST (Auto-generated REST API)
+  # ============================================
+  rest:
+    image: postgrest/postgrest:v12.2.3
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgresql://postgres:${POSTGRES_PASSWORD:-your-super-secret-password}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-token-at-least-32-chars}
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+    networks:
+      - indigitall-net
+
+  # ============================================
+  # Supabase Studio (DB Admin UI)
+  # ============================================
+  studio:
+    image: supabase/studio:20241202-71e5240
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your-super-secret-password}
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_REST_URL: http://rest:3000
+      SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks:
+      - indigitall-net
+
+  # ============================================
+  # Supabase Meta (PG metadata API for Studio)
+  # ============================================
+  meta:
+    image: supabase/postgres-meta:v0.84.2
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-your-super-secret-password}
+    restart: unless-stopped
+    networks:
+      - indigitall-net
+
+  # ============================================
+  # Kong (API Gateway)
+  # ============================================
+  kong:
+    image: kong:2.8.1
+    depends_on:
+      rest:
+        condition: service_started
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+    volumes:
+      - ./volumes/kong/kong.yml:/var/lib/kong/kong.yml:ro
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    networks:
+      - indigitall-net
+
+  # ============================================
+  # Dash App (Analytics Platform)
+  # ============================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-your-super-secret-password}@db:5432/postgres
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-dev-secret-change-in-production}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      DEFAULT_TENANT: ${DEFAULT_TENANT:-demo}
+      DEBUG: ${DEBUG:-true}
+    ports:
+      - "8050:8050"
+    volumes:
+      - ./app:/app/app  # Hot-reload in dev
+    restart: unless-stopped
+    networks:
+      - indigitall-net
+
+  # ============================================
+  # n8n (Workflow Automation / Data Ingestion)
+  # ============================================
+  n8n:
+    image: n8nio/n8n:1.70.2
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: db
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: postgres
+      DB_POSTGRESDB_USER: postgres
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-your-super-secret-password}
+      DB_POSTGRESDB_SCHEMA: n8n
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-change-me}
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: unless-stopped
+    networks:
+      - indigitall-net
+
+volumes:
+  pgdata:
+  n8n_data:
+
+networks:
+  indigitall-net:
+    driver: bridge

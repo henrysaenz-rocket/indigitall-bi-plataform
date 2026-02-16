@@ -1,0 +1,12 @@
+indigitall:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DB_HOST', 'localhost') }}"
+      port: 5432
+      user: postgres
+      password: "{{ env_var('POSTGRES_PASSWORD', 'your-super-secret-password') }}"
+      dbname: postgres
+      schema: public
+      threads: 2
