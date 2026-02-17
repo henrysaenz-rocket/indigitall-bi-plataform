@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: stg_messages
+    description: Cleaned and deduplicated messages with normalized direction values
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: message_id
+        tests: [not_null, unique]
+
+  - name: stg_contacts
+    description: Deduplicated contacts with non-null totals
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: contact_id
+        tests: [not_null]
+
+  - name: stg_agents
+    description: Deduplicated agents with non-null totals
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: agent_id
+        tests: [not_null]
+
+  - name: stg_toques_daily
+    description: Cleaned daily campaign data with recalculated rates
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: date
+        tests: [not_null]
+      - name: canal
+        tests: [not_null]
+
+  - name: stg_campaigns
+    description: Cleaned campaign summaries with recalculated rates
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: campana_id
+        tests: [not_null, unique]

@@ -3,21 +3,72 @@ version: 2
 sources:
   - name: raw
     schema: public
-    description: Raw data from CSV seed / n8n API ingestion
+    description: >
+      Raw data from CSV seed or n8n API ingestion.
+      All tables include tenant_id for multi-tenant isolation.
     tables:
       - name: messages
-        description: WhatsApp message records
+        description: WhatsApp message records — one row per message
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+          - name: message_id
+            tests: [not_null]
+          - name: direction
+            tests: [not_null]
+
       - name: contacts
         description: Contact records derived from messages
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+          - name: contact_id
+            tests: [not_null]
+
       - name: agents
         description: Agent performance records
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+          - name: agent_id
+            tests: [not_null]
+
       - name: daily_stats
-        description: Daily aggregated statistics
+        description: Daily aggregated statistics per tenant
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+          - name: date
+            tests: [not_null]
+
       - name: toques_daily
-        description: Daily campaign touch data
+        description: Daily campaign touch data by channel and project
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+          - name: date
+            tests: [not_null]
+          - name: canal
+            tests: [not_null]
+
       - name: campaigns
-        description: Campaign summary data
+        description: Campaign summary with totals and rates
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+          - name: campana_id
+            tests: [not_null]
+
       - name: toques_heatmap
-        description: Heatmap data (day x hour)
+        description: Heatmap data — sends/clicks by day-of-week and hour
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+
       - name: toques_usuario
         description: Per-user campaign touch data
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+          - name: telefono
+            tests: [not_null]

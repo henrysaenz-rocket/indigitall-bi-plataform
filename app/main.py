@@ -10,6 +10,10 @@ from dash import html, dcc, page_container
 import dash_bootstrap_components as dbc
 
 from app.config import settings
+from app.logging_config import setup_logging
+
+# --- Logging ---
+setup_logging()
 
 # --- Sentry (optional) ---
 if settings.SENTRY_DSN:

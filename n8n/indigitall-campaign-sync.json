@@ -1,0 +1,131 @@
+{
+  "name": "indigitall-campaign-sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "hours", "hoursInterval": 1}]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.INDIGITALL_API_URL }}/v1/campaigns/stats",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "headerParameters": {
+          "parameters": [
+            {"name": "X-Api-Key", "value": "={{ $env.INDIGITALL_API_KEY }}"},
+            {"name": "X-Project-Id", "value": "={{ $json.project_id }}"}
+          ]
+        },
+        "queryParameters": {
+          "parameters": [
+            {"name": "date_from", "value": "={{ $json.last_cursor }}"},
+            {"name": "group_by", "value": "day,channel,project"}
+          ]
+        }
+      },
+      "name": "Fetch Campaign Stats (PLACEHOLDER)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [500, 200],
+      "notes": "BLOCKED: Replace with real indigitall API endpoint when D2/D14 arrive"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.INDIGITALL_API_URL }}/v1/campaigns/list",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "headerParameters": {
+          "parameters": [
+            {"name": "X-Api-Key", "value": "={{ $env.INDIGITALL_API_KEY }}"}
+          ]
+        }
+      },
+      "name": "Fetch Campaign List (PLACEHOLDER)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [500, 400],
+      "notes": "BLOCKED: Replace with real indigitall API endpoint when D2/D14 arrive"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT last_cursor FROM sync_state WHERE tenant_id = '{{ $json.project_id }}' AND entity = 'campaigns'"
+      },
+      "name": "Get Sync Cursor",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [350, 200]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "toques_daily",
+        "columns": "tenant_id, date, canal, proyecto_cuenta, enviados, entregados, clicks, chunks, usuarios_unicos, abiertos, rebotes, bloqueados, spam, desuscritos, conversiones, ctr, tasa_entrega, open_rate, conversion_rate"
+      },
+      "name": "Upsert Toques Daily",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [750, 200],
+      "notes": "Map API response fields to table columns. Use ON CONFLICT for upsert."
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "campaigns",
+        "columns": "tenant_id, campana_id, campana_nombre, canal, proyecto_cuenta, tipo_campana, total_enviados, total_entregados, total_clicks, ctr, tasa_entrega"
+      },
+      "name": "Upsert Campaigns",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [750, 400],
+      "notes": "Map API response fields to table columns. Use ON CONFLICT for upsert."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sync_state (tenant_id, entity, last_cursor, last_sync_at, records_synced, status) VALUES ('{{ $json.project_id }}', 'campaigns', '{{ $json.new_cursor }}', NOW(), {{ $json.count }}, 'completed') ON CONFLICT (tenant_id, entity) DO UPDATE SET last_cursor = EXCLUDED.last_cursor, last_sync_at = NOW(), records_synced = EXCLUDED.records_synced, status = 'completed'"
+      },
+      "name": "Update Sync Cursor",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [950, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{"node": "Get Sync Cursor", "type": "main", "index": 0}]]
+    },
+    "Get Sync Cursor": {
+      "main": [
+        [
+          {"node": "Fetch Campaign Stats (PLACEHOLDER)", "type": "main", "index": 0},
+          {"node": "Fetch Campaign List (PLACEHOLDER)", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Fetch Campaign Stats (PLACEHOLDER)": {
+      "main": [[{"node": "Upsert Toques Daily", "type": "main", "index": 0}]]
+    },
+    "Fetch Campaign List (PLACEHOLDER)": {
+      "main": [[{"node": "Upsert Campaigns", "type": "main", "index": 0}]]
+    },
+    "Upsert Toques Daily": {
+      "main": [[{"node": "Update Sync Cursor", "type": "main", "index": 0}]]
+    },
+    "Upsert Campaigns": {
+      "main": [[{"node": "Update Sync Cursor", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "tags": [{"name": "indigitall"}, {"name": "campaign-sync"}, {"name": "placeholder"}]
+}

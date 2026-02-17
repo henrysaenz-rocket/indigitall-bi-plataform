@@ -10,3 +10,12 @@ indigitall:
       dbname: postgres
       schema: public
       threads: 2
+    prod:
+      type: postgres
+      host: "{{ env_var('DB_HOST', 'db') }}"
+      port: 5432
+      user: postgres
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: postgres
+      schema: public
+      threads: 4

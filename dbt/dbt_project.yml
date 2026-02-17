@@ -15,11 +15,16 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+vars:
+  default_tenant: "demo"
+
 models:
   indigitall_analytics:
     staging:
       +materialized: view
       +schema: staging
+      +tags: ["staging"]
     marts:
       +materialized: table
       +schema: marts
+      +tags: ["marts"]

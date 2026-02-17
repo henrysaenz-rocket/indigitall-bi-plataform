@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: fct_messages_daily
+    description: Daily message aggregations per tenant — KPIs, direction breakdown, fallback, timing
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: date
+        tests: [not_null]
+
+  - name: fct_daily_stats
+    description: Combined daily KPIs from messages + campaigns — single row per tenant per date
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: date
+        tests: [not_null]
+
+  - name: dim_contacts
+    description: Enriched contact dimension with recalculated totals from messages
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: contact_id
+        tests: [not_null]
+
+  - name: dim_campaigns
+    description: Campaign dimension enriched with daily activity data
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: campana_id
+        tests: [not_null]
+
+  - name: fct_toques_metrics
+    description: Campaign channel metrics aggregated monthly — powers Dashboard tabs
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: canal
+        tests: [not_null]
+
+  - name: fct_agent_performance
+    description: Agent metrics computed from messages — timing, quality, volume
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: agent_id
+        tests: [not_null]
