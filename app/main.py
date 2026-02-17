@@ -137,5 +137,15 @@ app.layout = html.Div([
 ])
 
 
+# --- Register callbacks ---
+# Importing callback modules triggers @callback registration with Dash.
+import app.callbacks.nav_cb  # noqa: F401
+import app.callbacks.home_cb  # noqa: F401
+import app.callbacks.query_cb  # noqa: F401
+import app.callbacks.query_list_cb  # noqa: F401
+import app.callbacks.dashboard_list_cb  # noqa: F401
+import app.callbacks.dashboard_view_cb  # noqa: F401
+
+
 if __name__ == "__main__":
     app.run(debug=settings.DEBUG, port=8050)

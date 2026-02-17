@@ -30,8 +30,9 @@ layout = dbc.Container([
                 # Suggestion chips (shown when no messages)
                 html.Div(
                     [dbc.Button(s, outline=True, color="primary", size="sm",
-                                className="suggestion-chip me-2 mb-2")
-                     for s in SUGGESTIONS],
+                                className="suggestion-chip me-2 mb-2",
+                                id={"type": "suggestion-chip", "index": i})
+                     for i, s in enumerate(SUGGESTIONS)],
                     id="suggestion-chips",
                     className="mb-3",
                 ),
