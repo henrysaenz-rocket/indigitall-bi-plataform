@@ -42,6 +42,16 @@ def safe_int(val, default=0):
         return default
 
 
+def to_str_id(val):
+    """Convert a numeric ID (possibly float) to a clean string."""
+    if pd.isna(val) or val == "":
+        return None
+    try:
+        return str(int(float(val)))
+    except (ValueError, TypeError):
+        return str(val).strip() if val else None
+
+
 def seed_messages():
     csv = DEMO_DATA / "messages.csv"
     if not csv.exists():
@@ -63,8 +73,16 @@ def seed_messages():
         if col in df.columns:
             df[col] = df[col].apply(lambda v: safe_int(v, None))
 
+    # Convert float IDs to string
+    for col in ["message_id", "contact_id", "conversation_id", "agent_id"]:
+        if col in df.columns:
+            df[col] = df[col].apply(to_str_id)
+
     # Drop entity (we use tenant_id now)
     df = df.drop(columns=["entity"], errors="ignore")
+
+    # Deduplicate on unique constraint columns
+    df = df.drop_duplicates(subset=["tenant_id", "message_id"], keep="first")
 
     df.to_sql("messages", engine, if_exists="append", index=False, method="multi", chunksize=5000)
     print(f"  messages: {len(df)} rows")
@@ -79,6 +97,13 @@ def seed_contacts():
     df = pd.read_csv(csv)
     df["tenant_id"] = df["entity"].fillna(DEFAULT_TENANT)
     df = df.drop(columns=["entity"], errors="ignore")
+
+    # Convert float contact_id to string
+    df["contact_id"] = df["contact_id"].apply(to_str_id)
+
+    # Deduplicate on unique constraint columns
+    df = df.drop_duplicates(subset=["tenant_id", "contact_id"], keep="first")
+
     df.to_sql("contacts", engine, if_exists="append", index=False)
     print(f"  contacts: {len(df)} rows")
 
@@ -97,9 +122,8 @@ def seed_agents():
         df["avg_handle_time_seconds"] = (df["avg_handle_time_minutes"] * 60).astype(int)
         df = df.drop(columns=["avg_handle_time_minutes"], errors="ignore")
 
-    # Drop avg_handle_time_seconds if it was already there from CSV
-    if "avg_handle_time_seconds" not in df.columns and "avg_handle_time_seconds" in df.columns:
-        pass  # already there
+    # Deduplicate on unique constraint columns
+    df = df.drop_duplicates(subset=["tenant_id", "agent_id"], keep="first")
 
     df.to_sql("agents", engine, if_exists="append", index=False)
     print(f"  agents: {len(df)} rows")
@@ -117,6 +141,9 @@ def seed_daily_stats():
     # Fix fallback_count — may be concatenated strings
     df["fallback_count"] = df["fallback_count"].apply(safe_int)
 
+    # Deduplicate on unique constraint columns
+    df = df.drop_duplicates(subset=["tenant_id", "date"], keep="first")
+
     df.to_sql("daily_stats", engine, if_exists="append", index=False)
     print(f"  daily_stats: {len(df)} rows")
 
@@ -129,6 +156,9 @@ def seed_toques_daily():
 
     df = pd.read_csv(csv, parse_dates=["date"])
     df["tenant_id"] = df["proyecto_cuenta"].fillna(DEFAULT_TENANT)
+
+    # Deduplicate on unique constraint columns
+    df = df.drop_duplicates(subset=["tenant_id", "date", "canal", "proyecto_cuenta"], keep="first")
 
     df.to_sql("toques_daily", engine, if_exists="append", index=False, method="multi", chunksize=5000)
     print(f"  toques_daily: {len(df)} rows")
@@ -143,6 +173,9 @@ def seed_campaigns():
     df = pd.read_csv(csv, parse_dates=["fecha_inicio", "fecha_fin"])
     df["tenant_id"] = df["proyecto_cuenta"].fillna(DEFAULT_TENANT)
 
+    # Deduplicate on unique constraint columns
+    df = df.drop_duplicates(subset=["tenant_id", "campana_id"], keep="first")
+
     df.to_sql("campaigns", engine, if_exists="append", index=False)
     print(f"  campaigns: {len(df)} rows")
 
@@ -156,6 +189,9 @@ def seed_heatmap():
     df = pd.read_csv(csv)
     df["tenant_id"] = DEFAULT_TENANT
 
+    # Deduplicate on unique constraint columns
+    df = df.drop_duplicates(subset=["tenant_id", "canal", "dia_semana", "hora"], keep="first")
+
     df.to_sql("toques_heatmap", engine, if_exists="append", index=False, method="multi", chunksize=5000)
     print(f"  toques_heatmap: {len(df)} rows")
 
@@ -168,6 +204,9 @@ def seed_usuario():
 
     df = pd.read_csv(csv, parse_dates=["primer_toque", "ultimo_toque"])
     df["tenant_id"] = df["proyecto_cuenta"].fillna(DEFAULT_TENANT)
+
+    # Deduplicate on unique constraint columns
+    df = df.drop_duplicates(subset=["tenant_id", "telefono", "canal", "proyecto_cuenta"], keep="first")
 
     # This table is large (~675K rows) — use chunked insert
     df.to_sql("toques_usuario", engine, if_exists="append", index=False, method="multi", chunksize=10000)

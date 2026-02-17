@@ -22,7 +22,8 @@ if settings.SENTRY_DSN:
     sentry_sdk.init(dsn=settings.SENTRY_DSN, integrations=[FlaskIntegration()])
 
 # --- Dash App ---
-app = dash.Dash(
+# Named `dash_app` to avoid shadowing the `app` package name.
+dash_app = dash.Dash(
     __name__,
     use_pages=True,
     pages_folder="layouts",
@@ -39,7 +40,7 @@ app = dash.Dash(
     update_title="Cargando...",
 )
 
-server = app.server
+server = dash_app.server
 server.secret_key = settings.FLASK_SECRET_KEY
 
 # --- Auth middleware ---
@@ -62,7 +63,7 @@ def create_navbar():
                 dbc.NavbarBrand(
                     html.Div([
                         html.Img(
-                            src=app.get_asset_url("indigitall_logo.webp"),
+                            src=dash_app.get_asset_url("indigitall_logo.webp"),
                             height="32px",
                             className="me-2",
                         ),
@@ -127,7 +128,7 @@ def create_navbar():
 
 
 # --- Layout ---
-app.layout = html.Div([
+dash_app.layout = html.Div([
     # Global stores
     dcc.Store(id="chat-history", storage_type="session"),
     dcc.Store(id="query-result", storage_type="memory"),
@@ -162,4 +163,4 @@ import app.callbacks.dashboard_view_cb  # noqa: F401
 
 
 if __name__ == "__main__":
-    app.run(debug=settings.DEBUG, port=8050)
+    dash_app.run(debug=settings.DEBUG, port=8050)

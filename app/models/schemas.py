@@ -18,7 +18,7 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     message_id = Column(String(100), nullable=False)
     timestamp = Column(TIMESTAMP(timezone=True), nullable=False)
     date = Column(Date, nullable=False)
@@ -54,7 +54,7 @@ class Contact(Base):
     __tablename__ = "contacts"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     contact_id = Column(String(100), nullable=False)
     contact_name = Column(String(255))
     total_messages = Column(Integer, nullable=False, default=0)
@@ -71,7 +71,7 @@ class Agent(Base):
     __tablename__ = "agents"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     agent_id = Column(String(100), nullable=False)
     total_messages = Column(Integer, nullable=False, default=0)
     conversations_handled = Column(Integer, nullable=False, default=0)
@@ -86,7 +86,7 @@ class DailyStat(Base):
     __tablename__ = "daily_stats"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     date = Column(Date, nullable=False)
     total_messages = Column(Integer, nullable=False)
     unique_contacts = Column(Integer, nullable=False)
@@ -106,7 +106,7 @@ class ToquesDaily(Base):
     __tablename__ = "toques_daily"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     date = Column(Date, nullable=False)
     canal = Column(String(30), nullable=False)
     proyecto_cuenta = Column(String(100), nullable=False)
@@ -139,7 +139,7 @@ class Campaign(Base):
     __tablename__ = "campaigns"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     campana_id = Column(String(100), nullable=False)
     campana_nombre = Column(String(255), nullable=False)
     canal = Column(String(30), nullable=False)
@@ -171,7 +171,7 @@ class ToquesHeatmap(Base):
     __tablename__ = "toques_heatmap"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     canal = Column(String(30), nullable=False)
     dia_semana = Column(String(12), nullable=False)
     hora = Column(SmallInteger, nullable=False)
@@ -192,7 +192,7 @@ class ToquesUsuario(Base):
     __tablename__ = "toques_usuario"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     telefono = Column(String(50), nullable=False)
     canal = Column(String(30), nullable=False)
     proyecto_cuenta = Column(String(100), nullable=False)
@@ -218,7 +218,7 @@ class SavedQuery(Base):
     __tablename__ = "saved_queries"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     name = Column(String(255), nullable=False)
     query_text = Column(Text, nullable=False)
     ai_function = Column(String(50))
@@ -247,7 +247,7 @@ class Dashboard(Base):
     __tablename__ = "dashboards"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text)
     layout = Column(JSONB, nullable=False, default=[])
@@ -267,7 +267,7 @@ class SyncState(Base):
     __tablename__ = "sync_state"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(50), nullable=False)
+    tenant_id = Column(Text, nullable=False)
     entity = Column(String(50), nullable=False)
     last_cursor = Column(Text)
     last_sync_at = Column(DateTime(timezone=True))

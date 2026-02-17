@@ -1,5 +1,5 @@
 """Gunicorn WSGI entry point."""
 
-from app.main import app
+from app.main import dash_app
 
-server = app.server
+server = dash_app.server
