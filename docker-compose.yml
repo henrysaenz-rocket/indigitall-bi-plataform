@@ -119,10 +119,14 @@ services:
       SENTRY_DSN: ${SENTRY_DSN:-}
       DEFAULT_TENANT: ${DEFAULT_TENANT:-demo}
       DEBUG: ${DEBUG:-true}
+      INDIGITALL_API_BASE_URL: ${INDIGITALL_API_BASE_URL:-https://api.indigitall.com}
+      INDIGITALL_EMAIL: ${INDIGITALL_EMAIL:-}
+      INDIGITALL_PASSWORD: ${INDIGITALL_PASSWORD:-}
     ports:
       - "8050:8050"
     volumes:
       - ./app:/app/app  # Hot-reload in dev
+      - ./scripts:/app/scripts  # Extraction scripts
     restart: unless-stopped
     networks:
       - indigitall-net
