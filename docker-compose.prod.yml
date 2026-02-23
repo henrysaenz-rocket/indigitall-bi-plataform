@@ -1,0 +1,47 @@
+# =============================================================================
+# Production overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# =============================================================================
+
+services:
+  # --- PostgreSQL (no host port — only accessible via Docker network) ---
+  db:
+    restart: always
+    ports: !override []
+
+  # --- PostgREST ---
+  rest:
+    restart: always
+    ports: !override
+      - "127.0.0.1:3001:3000"
+
+  # --- Supabase Studio (restrict to localhost) ---
+  studio:
+    restart: always
+    ports: !override
+      - "127.0.0.1:3100:3000"
+
+  # --- Supabase Meta ---
+  meta:
+    restart: always
+
+  # --- Kong ---
+  kong:
+    restart: always
+    ports: !override
+      - "127.0.0.1:8000:8000"
+
+  # --- Dash App (exposed for Caddy reverse proxy) ---
+  app:
+    restart: always
+    environment:
+      DEBUG: "false"
+    ports: !override
+      - "127.0.0.1:8050:8050"
+    volumes: []
+
+  # --- n8n ---
+  n8n:
+    restart: always
+    ports: !override
+      - "127.0.0.1:5678:5678"
