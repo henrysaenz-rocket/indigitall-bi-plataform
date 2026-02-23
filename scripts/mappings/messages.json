@@ -1,0 +1,42 @@
+{
+  "description": "Mapping for indigitall Messages API -> messages table",
+  "api_endpoint": "/v1/messages",
+  "fields": {
+    "id": "message_id",
+    "created_at": "timestamp",
+    "date": "date",
+    "hour": "hour",
+    "day_of_week": "day_of_week",
+    "type": "send_type",
+    "direction": "direction",
+    "content_type": "content_type",
+    "delivery_status": "status",
+    "contact_name": "contact_name",
+    "contact_id": "contact_id",
+    "conversation_id": "conversation_id",
+    "agent_id": "agent_id",
+    "close_reason": "close_reason",
+    "detected_intent": "intent",
+    "is_fallback": "is_fallback",
+    "body": "message_body",
+    "is_bot": "is_bot",
+    "is_human": "is_human",
+    "wait_time": "wait_time_seconds",
+    "handle_time": "handle_time_seconds"
+  },
+  "defaults": {
+    "is_fallback": false,
+    "is_bot": false,
+    "is_human": false
+  },
+  "transforms": {
+    "is_fallback": "bool",
+    "is_bot": "bool",
+    "is_human": "bool",
+    "hour": "int",
+    "wait_time_seconds": "int",
+    "handle_time_seconds": "int",
+    "date": "date_only"
+  },
+  "notes": "Pending: Confirm exact field names when indigitall API access (D1/D14) arrives"
+}

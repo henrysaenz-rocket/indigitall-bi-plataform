@@ -424,6 +424,33 @@ html, body {
   color: var(--id-warning) !important;
 }
 
+/* === Data Explorer — Table Cards === */
+.table-card {
+  transition: all 200ms ease-out;
+  border: 2px solid transparent;
+}
+
+.table-card:hover {
+  border-color: var(--id-primary-light);
+  box-shadow: var(--id-shadow-md);
+  transform: translateY(-2px);
+}
+
+.table-card.selected {
+  border-color: var(--id-primary);
+  box-shadow: 0 0 0 3px rgba(30, 136, 229, 0.15);
+}
+
+/* Sync status cards */
+.sync-card {
+  border-left: 3px solid var(--id-primary);
+}
+
+.sync-card .bi-check-circle-fill { color: var(--id-success); }
+.sync-card .bi-exclamation-triangle-fill { color: var(--id-error); }
+.sync-card .bi-arrow-repeat { color: var(--id-primary); }
+.sync-card .bi-clock { color: var(--id-text-muted); }
+
 /* === Responsive === */
 @media (max-width: 1200px) {
   .query-page-row .chat-column { flex: 0 0 45%; max-width: 45%; }

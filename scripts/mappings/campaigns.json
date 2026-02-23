@@ -1,0 +1,42 @@
+{
+  "description": "Mapping for indigitall Campaigns API -> campaigns table",
+  "api_endpoint": "/v1/campaigns/list",
+  "fields": {
+    "campaign_id": "campana_id",
+    "campaign_name": "campana_nombre",
+    "channel": "canal",
+    "project": "proyecto_cuenta",
+    "campaign_type": "tipo_campana",
+    "total_sent": "total_enviados",
+    "total_delivered": "total_entregados",
+    "total_clicks": "total_clicks",
+    "total_chunks": "total_chunks",
+    "start_date": "fecha_inicio",
+    "end_date": "fecha_fin",
+    "total_opened": "total_abiertos",
+    "total_bounced": "total_rebotes",
+    "total_blocked": "total_bloqueados",
+    "total_spam": "total_spam",
+    "total_unsubscribed": "total_desuscritos",
+    "total_conversions": "total_conversiones",
+    "click_through_rate": "ctr",
+    "delivery_rate": "tasa_entrega",
+    "open_rate": "open_rate",
+    "conversion_rate": "conversion_rate"
+  },
+  "defaults": {
+    "total_enviados": 0,
+    "total_entregados": 0,
+    "total_clicks": 0,
+    "total_chunks": 0
+  },
+  "transforms": {
+    "total_enviados": "int",
+    "total_entregados": "int",
+    "total_clicks": "int",
+    "total_chunks": "int",
+    "fecha_inicio": "date_only",
+    "fecha_fin": "date_only"
+  },
+  "notes": "Pending: Confirm exact field names when indigitall API access (D2/D14) arrives"
+}

@@ -26,5 +26,8 @@ python-dotenv>=1.0,<2.0
 flask-jwt-extended>=4.6,<5.0
 PyJWT>=2.8,<3.0
 
+# HTTP client (API ingestion)
+requests>=2.31,<3.0
+
 # Monitoring
 sentry-sdk[flask]>=2.0,<3.0
