@@ -87,6 +87,10 @@ def create_navbar():
                             [html.I(className="bi bi-grid-1x2 me-1"), "Tableros"],
                             href="/tableros", active="exact",
                         )),
+                        dbc.NavItem(dbc.NavLink(
+                            [html.I(className="bi bi-database me-1"), "Datos"],
+                            href="/datos", active="exact",
+                        )),
                     ],
                     className="mx-auto",
                     navbar=True,
@@ -160,6 +164,7 @@ import app.callbacks.query_cb  # noqa: F401
 import app.callbacks.query_list_cb  # noqa: F401
 import app.callbacks.dashboard_list_cb  # noqa: F401
 import app.callbacks.dashboard_view_cb  # noqa: F401
+import app.callbacks.data_explorer_cb  # noqa: F401
 
 
 if __name__ == "__main__":

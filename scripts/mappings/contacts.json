@@ -1,0 +1,23 @@
+{
+  "description": "Mapping for indigitall Contacts API -> contacts table",
+  "api_endpoint": "/v1/contacts",
+  "fields": {
+    "id": "contact_id",
+    "name": "contact_name",
+    "message_count": "total_messages",
+    "first_seen": "first_contact",
+    "last_seen": "last_contact",
+    "conversation_count": "total_conversations"
+  },
+  "defaults": {
+    "total_messages": 0,
+    "total_conversations": 0
+  },
+  "transforms": {
+    "total_messages": "int",
+    "total_conversations": "int",
+    "first_contact": "date_only",
+    "last_contact": "date_only"
+  },
+  "notes": "Pending: Confirm exact field names when indigitall API access arrives"
+}

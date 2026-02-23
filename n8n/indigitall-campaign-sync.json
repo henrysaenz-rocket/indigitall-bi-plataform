@@ -14,6 +14,21 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "string": [{
+            "value1": "={{ $env.INDIGITALL_API_KEY }}",
+            "operation": "isNotEmpty"
+          }]
+        }
+      },
+      "name": "Has API Key?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [350, 300],
+      "notes": "Branch: live API vs mock data. Remove this node once API credentials are confirmed."
+    },
+    {
+      "parameters": {
         "url": "={{ $env.INDIGITALL_API_URL }}/v1/campaigns/stats",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
@@ -28,13 +43,16 @@
             {"name": "date_from", "value": "={{ $json.last_cursor }}"},
             {"name": "group_by", "value": "day,channel,project"}
           ]
+        },
+        "options": {
+          "timeout": 30000
         }
       },
-      "name": "Fetch Campaign Stats (PLACEHOLDER)",
+      "name": "Fetch Campaign Stats (LIVE)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [500, 200],
-      "notes": "BLOCKED: Replace with real indigitall API endpoint when D2/D14 arrive"
+      "position": [550, 200],
+      "notes": "BLOCKED: Replace with real indigitall API endpoint when D2/D14 arrive.\n\nExpected response format:\n{\n  \"data\": [{\"date\": \"2026-01-15\", \"channel\": \"SMS\", \"sent\": 1500, ...}],\n  \"next_cursor\": \"2026-01-15\",\n  \"count\": 300\n}"
     },
     {
       "parameters": {
@@ -45,13 +63,26 @@
           "parameters": [
             {"name": "X-Api-Key", "value": "={{ $env.INDIGITALL_API_KEY }}"}
           ]
+        },
+        "options": {
+          "timeout": 30000
         }
       },
-      "name": "Fetch Campaign List (PLACEHOLDER)",
+      "name": "Fetch Campaign List (LIVE)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [500, 400],
-      "notes": "BLOCKED: Replace with real indigitall API endpoint when D2/D14 arrive"
+      "position": [550, 400],
+      "notes": "BLOCKED: Replace with real indigitall API endpoint when D2/D14 arrive.\n\nExpected response format:\n{\n  \"data\": [{\"campaign_id\": \"c_001\", \"campaign_name\": \"...\", ...}],\n  \"count\": 10\n}"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock data branch — campaign stats for dev/demo\nconst channels = ['SMS', 'WhatsApp', 'Email', 'Push'];\nconst projects = ['visionamos', 'demo'];\nconst records = [];\nfor (let i = 0; i < 30; i++) {\n  const sent = Math.floor(Math.random() * 5000) + 100;\n  const delivered = Math.floor(sent * (0.85 + Math.random() * 0.14));\n  records.push({\n    date: new Date(Date.now() - i * 86400000).toISOString().slice(0, 10),\n    canal: channels[Math.floor(Math.random() * channels.length)],\n    proyecto_cuenta: projects[Math.floor(Math.random() * projects.length)],\n    enviados: sent,\n    entregados: delivered,\n    clicks: Math.floor(delivered * Math.random() * 0.2),\n    chunks: Math.floor(Math.random() * 3) + 1,\n    tenant_id: 'demo'\n  });\n}\nreturn records.map(r => ({json: r}));"
+      },
+      "name": "Generate Mock Campaign Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [550, 550],
+      "notes": "DEV ONLY: Generates mock campaign stats for testing. Remove when live API is connected."
     },
     {
       "parameters": {
@@ -73,7 +104,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
       "position": [750, 200],
-      "notes": "Map API response fields to table columns. Use ON CONFLICT for upsert."
+      "notes": "Map API response fields to table columns.\nUse ON CONFLICT (tenant_id, date, canal, proyecto_cuenta) for upsert."
     },
     {
       "parameters": {
@@ -85,7 +116,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
       "position": [750, 400],
-      "notes": "Map API response fields to table columns. Use ON CONFLICT for upsert."
+      "notes": "Map API response fields to table columns.\nUse ON CONFLICT (tenant_id, campana_id) for upsert."
     },
     {
       "parameters": {
@@ -96,25 +127,45 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
       "position": [950, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sync_state SET status = 'error', last_sync_at = NOW() WHERE tenant_id = '{{ $json.project_id }}' AND entity = 'campaigns'"
+      },
+      "name": "Set Error State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [750, 600],
+      "notes": "Called on any error to mark sync as failed"
     }
   ],
   "connections": {
     "Schedule Trigger": {
-      "main": [[{"node": "Get Sync Cursor", "type": "main", "index": 0}]]
+      "main": [[{"node": "Has API Key?", "type": "main", "index": 0}]]
+    },
+    "Has API Key?": {
+      "main": [
+        [{"node": "Get Sync Cursor", "type": "main", "index": 0}],
+        [{"node": "Generate Mock Campaign Data", "type": "main", "index": 0}]
+      ]
     },
     "Get Sync Cursor": {
       "main": [
         [
-          {"node": "Fetch Campaign Stats (PLACEHOLDER)", "type": "main", "index": 0},
-          {"node": "Fetch Campaign List (PLACEHOLDER)", "type": "main", "index": 0}
+          {"node": "Fetch Campaign Stats (LIVE)", "type": "main", "index": 0},
+          {"node": "Fetch Campaign List (LIVE)", "type": "main", "index": 0}
         ]
       ]
     },
-    "Fetch Campaign Stats (PLACEHOLDER)": {
+    "Fetch Campaign Stats (LIVE)": {
       "main": [[{"node": "Upsert Toques Daily", "type": "main", "index": 0}]]
     },
-    "Fetch Campaign List (PLACEHOLDER)": {
+    "Fetch Campaign List (LIVE)": {
       "main": [[{"node": "Upsert Campaigns", "type": "main", "index": 0}]]
+    },
+    "Generate Mock Campaign Data": {
+      "main": [[{"node": "Upsert Toques Daily", "type": "main", "index": 0}]]
     },
     "Upsert Toques Daily": {
       "main": [[{"node": "Update Sync Cursor", "type": "main", "index": 0}]]
@@ -125,7 +176,9 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "saveManualExecutions": true
+    "saveManualExecutions": true,
+    "errorWorkflow": ""
   },
-  "tags": [{"name": "indigitall"}, {"name": "campaign-sync"}, {"name": "placeholder"}]
+  "pinData": {},
+  "tags": [{"name": "indigitall"}, {"name": "campaign-sync"}]
 }

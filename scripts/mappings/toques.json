@@ -1,0 +1,40 @@
+{
+  "description": "Mapping for indigitall Campaign Stats API -> toques_daily table",
+  "api_endpoint": "/v1/campaigns/stats",
+  "fields": {
+    "date": "date",
+    "channel": "canal",
+    "project": "proyecto_cuenta",
+    "sent": "enviados",
+    "delivered": "entregados",
+    "clicks": "clicks",
+    "chunks": "chunks",
+    "unique_users": "usuarios_unicos",
+    "opened": "abiertos",
+    "bounced": "rebotes",
+    "blocked": "bloqueados",
+    "spam": "spam",
+    "unsubscribed": "desuscritos",
+    "conversions": "conversiones",
+    "click_through_rate": "ctr",
+    "delivery_rate": "tasa_entrega",
+    "open_rate": "open_rate",
+    "conversion_rate": "conversion_rate"
+  },
+  "defaults": {
+    "enviados": 0,
+    "entregados": 0,
+    "clicks": 0,
+    "chunks": 0,
+    "usuarios_unicos": 0
+  },
+  "transforms": {
+    "enviados": "int",
+    "entregados": "int",
+    "clicks": "int",
+    "chunks": "int",
+    "usuarios_unicos": "int",
+    "date": "date_only"
+  },
+  "notes": "Pending: Confirm exact field names when indigitall API access (D2/D14) arrives"
+}

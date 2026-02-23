@@ -1,0 +1,62 @@
+# =============================================================================
+# Caddyfile — Reverse proxy with automatic TLS for inDigitall BI Platform
+#
+# Install: sudo cp scripts/deploy/Caddyfile /etc/caddy/Caddyfile
+# Reload:  sudo systemctl reload caddy
+# =============================================================================
+
+# Dash Analytics App
+analytics.abstractstudio.co {
+    reverse_proxy localhost:8050
+
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    encode gzip
+
+    log {
+        output file /var/log/caddy/analytics.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
+
+# n8n Workflow Automation (for Henry)
+n8n-indigitall.abstractstudio.co {
+    reverse_proxy localhost:5678
+
+    header {
+        X-Content-Type-Options "nosniff"
+        -Server
+    }
+
+    log {
+        output file /var/log/caddy/n8n.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
+
+# Supabase Studio (DB admin — backup access)
+studio-indigitall.abstractstudio.co {
+    reverse_proxy localhost:3000
+
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        -Server
+    }
+
+    log {
+        output file /var/log/caddy/studio.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
