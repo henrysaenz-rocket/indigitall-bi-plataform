@@ -39,7 +39,7 @@ def main():
         print("\n[ERROR] Set INDIGITALL_SERVER_KEY (ServerKey auth)")
         print("        or INDIGITALL_EMAIL + INDIGITALL_PASSWORD (JWT auth)")
         print("        in .env")
-        sys.exit(1)
+        raise RuntimeError("Missing Indigitall credentials")
 
     start_time = time.time()
 
@@ -51,7 +51,7 @@ def main():
         print("  Authentication successful")
     except Exception as exc:
         print(f"  [FATAL] Authentication failed: {exc}")
-        sys.exit(1)
+        raise RuntimeError(f"Authentication failed: {exc}") from exc
 
     # ----- Discover applications -----
     print("\n[2/4] Discovering applications...")
@@ -59,7 +59,7 @@ def main():
 
     if not all_apps:
         print("  [FATAL] No applications found. Check credentials and permissions.")
-        sys.exit(1)
+        raise RuntimeError("No applications found")
 
     # ----- Filter Visionamos -----
     target_apps = get_visionamos_apps(all_apps)

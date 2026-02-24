@@ -9,6 +9,10 @@ import dash
 from dash import html, dcc, page_container
 import dash_bootstrap_components as dbc
 
+import threading
+from datetime import datetime, timezone
+from flask import request, jsonify
+
 from app.config import settings
 from app.logging_config import setup_logging
 
@@ -52,6 +56,123 @@ init_auth(server, settings)
 @server.route("/health")
 def health():
     return {"status": "ok", "auth_mode": settings.AUTH_MODE}
+
+
+# --- Pipeline API (for n8n / cron automation) ---
+
+_pipeline_state = {
+    "running": False,
+    "last_run": None,
+    "last_status": None,
+    "last_duration_s": None,
+    "last_results": None,
+}
+_pipeline_lock = threading.Lock()
+
+
+def _run_pipeline_background(skip_extract=False, skip_dbt=False):
+    """Execute the ETL pipeline in a background thread."""
+    import time
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+    start = time.time()
+    results = {}
+    errors = []
+
+    try:
+        # Step 1: Extract (API → raw.*)
+        if not skip_extract:
+            try:
+                from scripts.extractors.orchestrator import main as extraction_main
+                extraction_main()
+                results["extract"] = "ok"
+            except Exception as exc:
+                results["extract"] = f"error: {str(exc)[:200]}"
+                errors.append(f"extract: {exc}")
+
+        # Step 2: Transform (raw.* → public.*)
+        try:
+            from scripts.transform_bridge import main as transform_main
+            rc = transform_main()
+            results["transform"] = "ok" if rc == 0 else "error"
+        except Exception as exc:
+            results["transform"] = f"error: {str(exc)[:200]}"
+            errors.append(f"transform: {exc}")
+
+        # Step 3: dbt (optional)
+        if not skip_dbt:
+            import subprocess
+            project_root = Path(__file__).resolve().parent.parent
+            dbt_dir = project_root / "dbt"
+            try:
+                r = subprocess.run(
+                    ["dbt", "run"], cwd=str(dbt_dir),
+                    capture_output=True, text=True, timeout=120,
+                )
+                results["dbt_run"] = "ok" if r.returncode == 0 else "error"
+            except Exception as exc:
+                results["dbt_run"] = f"error: {str(exc)[:100]}"
+
+        elapsed = time.time() - start
+        status = "success" if not errors else "partial_error"
+
+    except Exception as exc:
+        elapsed = time.time() - start
+        status = "error"
+        results["fatal"] = str(exc)[:300]
+
+    with _pipeline_lock:
+        _pipeline_state["running"] = False
+        _pipeline_state["last_run"] = datetime.now(timezone.utc).isoformat()
+        _pipeline_state["last_status"] = status
+        _pipeline_state["last_duration_s"] = round(elapsed, 1)
+        _pipeline_state["last_results"] = results
+
+
+@server.route("/api/run-pipeline", methods=["POST"])
+def api_run_pipeline():
+    """Trigger the ETL pipeline. Called by n8n or cron.
+
+    Query params:
+        skip_extract=1  — skip API extraction, only transform
+        skip_dbt=1      — skip dbt run step
+    Returns immediately with 202 Accepted (pipeline runs in background).
+    """
+    with _pipeline_lock:
+        if _pipeline_state["running"]:
+            return jsonify({
+                "status": "already_running",
+                "message": "Pipeline is already running. Check /api/pipeline-status.",
+            }), 409
+
+        _pipeline_state["running"] = True
+
+    skip_extract = request.args.get("skip_extract", "0") == "1"
+    skip_dbt = request.args.get("skip_dbt", "0") == "1"
+
+    thread = threading.Thread(
+        target=_run_pipeline_background,
+        args=(skip_extract, skip_dbt),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({
+        "status": "accepted",
+        "message": "Pipeline started in background.",
+        "skip_extract": skip_extract,
+        "skip_dbt": skip_dbt,
+    }), 202
+
+
+@server.route("/api/pipeline-status", methods=["GET"])
+def api_pipeline_status():
+    """Check pipeline execution status."""
+    with _pipeline_lock:
+        return jsonify(_pipeline_state)
 
 
 # --- Navbar ---
