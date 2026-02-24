@@ -17,19 +17,19 @@ echo " $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=============================================="
 
 # --- Pull latest code ---
-echo "[1/4] Pulling latest code..."
+echo "[1/5] Pulling latest code..."
 git pull --ff-only
 
 # --- Rebuild containers ---
-echo "[2/4] Building containers..."
+echo "[2/5] Building containers..."
 docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache app
 
 # --- Restart services ---
-echo "[3/4] Restarting services..."
+echo "[3/5] Restarting services..."
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # --- Run migrations (create new tables if any) ---
-echo "[4/4] Running migrations..."
+echo "[4/5] Running migrations..."
 docker compose exec -T app python -c "from app.models.database import create_tables; create_tables()"
 
 # --- Health check ---
@@ -44,6 +44,13 @@ else
     echo "[WARN] Health check returned HTTP $HTTP_STATUS"
     echo "       Check logs: docker compose logs app --tail 50"
 fi
+
+# --- Run ETL pipeline (transform_bridge) ---
+echo "[5/5] Running ETL pipeline..."
+docker compose exec -T app python scripts/transform_bridge.py 2>&1 || echo "[WARN] ETL pipeline failed — check logs"
+
+# --- Log deploy timestamp ---
+echo "$(date '+%Y-%m-%d %H:%M:%S') — deploy OK (HTTP $HTTP_STATUS)" >> /opt/indigitall-analytics/deploy.log
 
 echo ""
 echo "=============================================="
