@@ -14,7 +14,7 @@ Verified endpoints (ServerKey auth):
 import csv
 import io
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 
 from scripts.extractors.base_extractor import BaseExtractor
 from scripts.extractors.config import extraction_settings as cfg
@@ -119,8 +119,25 @@ class ChatExtractor(BaseExtractor):
 
         The API enforces a max 7-day window, so we slide through the
         full date range in 7-day chunks, paginating each chunk.
+
+        Incremental: reads last cursor (ISO date) and starts from
+        cursor - 1 day (overlap for late-arriving messages).
         """
         total_messages = 0
+
+        # Incremental: use cursor if available
+        cursor = self._get_cursor("chat_messages")
+        if cursor and not self.full_refresh:
+            try:
+                cursor_date = date.fromisoformat(cursor)
+                # Start 1 day before cursor for overlap
+                incremental_start = cursor_date - timedelta(days=1)
+                if incremental_start > self.date_from:
+                    self.date_from = incremental_start
+                    print(f"    message-history: incremental from {self.date_from}")
+            except ValueError:
+                pass  # bad cursor, fall through to full extraction
+
         window_start = self.date_from
 
         while window_start < self.date_to:
@@ -132,6 +149,9 @@ class ChatExtractor(BaseExtractor):
             )
             total_messages += page_messages
             window_start = window_end
+
+        # Save cursor for next incremental run
+        self._update_cursor("chat_messages", self.date_to.isoformat())
 
         print(f"    message-history: {total_messages} messages")
 

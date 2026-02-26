@@ -9,6 +9,8 @@ from sqlalchemy import text
 from scripts.extractors.config import extraction_settings as cfg
 from scripts.extractors.api_client import IndigitallAPIClient
 
+TENANT_ID = "visionamos"
+
 
 class BaseExtractor(ABC):
     """Abstract base class for channel-specific extractors."""
@@ -16,9 +18,11 @@ class BaseExtractor(ABC):
     CHANNEL_NAME: str = "base"
     RAW_TABLE: str = "raw.raw_applications"  # override in subclass
 
-    def __init__(self, client: IndigitallAPIClient, engine):
+    def __init__(self, client: IndigitallAPIClient, engine,
+                 full_refresh: bool = False):
         self.client = client
         self.engine = engine
+        self.full_refresh = full_refresh
         self.date_to = date.today()
         self.date_from = self.date_to - timedelta(days=cfg.EXTRACTION_DAYS_BACK)
         self.records_stored = 0
@@ -76,6 +80,37 @@ class BaseExtractor(ABC):
                 },
             )
         self.records_stored += 1
+
+    # ------------------------------------------------------------------
+    # Cursor helpers (incremental extraction)
+    # ------------------------------------------------------------------
+
+    def _get_cursor(self, entity: str) -> str | None:
+        """Read last_cursor from sync_state for incremental extraction."""
+        if self.full_refresh:
+            return None
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT last_cursor FROM public.sync_state
+                    WHERE tenant_id = :tid AND entity = :entity
+                """),
+                {"tid": TENANT_ID, "entity": entity},
+            ).fetchone()
+            return row[0] if row else None
+
+    def _update_cursor(self, entity: str, cursor_value: str):
+        """Write last_cursor to sync_state for the given entity."""
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO public.sync_state (tenant_id, entity, last_cursor, status)
+                    VALUES (:tid, :entity, :cursor, 'success')
+                    ON CONFLICT (tenant_id, entity) DO UPDATE SET
+                        last_cursor = EXCLUDED.last_cursor
+                """),
+                {"tid": TENANT_ID, "entity": entity, "cursor": cursor_value},
+            )
 
     # ------------------------------------------------------------------
     # Date helpers (formatted for Indigitall API)

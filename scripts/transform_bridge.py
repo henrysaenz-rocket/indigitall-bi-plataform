@@ -824,6 +824,72 @@ def transform_channels(conn) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Transform: chat_topics (from chat/topic in raw.raw_chat_stats)
+# ---------------------------------------------------------------------------
+
+TOPICS_SQL = """
+WITH raw_rows AS (
+    SELECT
+        source_data,
+        coalesce(tenant_id, :tid) AS tenant_id,
+        loaded_at
+    FROM raw.raw_chat_stats
+    WHERE endpoint = '/v1/chat/topic'
+      AND source_data->'data' IS NOT NULL
+      AND jsonb_typeof(source_data->'data') = 'array'
+),
+flattened AS (
+    SELECT
+        r.tenant_id,
+        coalesce(elem->>'id', elem->>'topicId')::text   AS topic_id,
+        elem->>'name'                                     AS topic_name,
+        elem->>'description'                              AS description,
+        coalesce((elem->>'isActive')::boolean, true)      AS is_active,
+        r.loaded_at
+    FROM raw_rows r,
+         jsonb_array_elements(r.source_data->'data') AS elem
+),
+deduplicated AS (
+    SELECT *,
+        row_number() OVER (
+            PARTITION BY tenant_id, topic_id
+            ORDER BY loaded_at DESC
+        ) AS _rn
+    FROM flattened
+    WHERE topic_id IS NOT NULL
+)
+SELECT tenant_id, topic_id, topic_name, description, is_active
+FROM deduplicated WHERE _rn = 1
+"""
+
+TOPICS_UPSERT = """
+INSERT INTO public.chat_topics
+    (tenant_id, topic_id, topic_name, description, is_active)
+VALUES
+    (:tenant_id, :topic_id, :topic_name, :description, :is_active)
+ON CONFLICT (tenant_id, topic_id) DO UPDATE SET
+    topic_name  = EXCLUDED.topic_name,
+    description = EXCLUDED.description,
+    is_active   = EXCLUDED.is_active
+"""
+
+
+def transform_topics(conn) -> int:
+    rows = conn.execute(text(TOPICS_SQL), {"tid": TENANT_ID}).fetchall()
+    count = 0
+    for r in rows:
+        conn.execute(text(TOPICS_UPSERT), {
+            "tenant_id": r[0],
+            "topic_id": str(r[1]),
+            "topic_name": r[2],
+            "description": r[3],
+            "is_active": r[4],
+        })
+        count += 1
+    return count
+
+
+# ---------------------------------------------------------------------------
 # Post-transform: update daily_stats from messages + conversations
 # ---------------------------------------------------------------------------
 
@@ -888,6 +954,60 @@ def update_agents_from_conversations(conn) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Post-transform: update contacts.total_messages and total_conversations
+# ---------------------------------------------------------------------------
+
+CONTACTS_FROM_MESSAGES = """
+WITH contact_stats AS (
+    SELECT
+        tenant_id,
+        contact_id,
+        count(*) AS total_messages,
+        count(DISTINCT conversation_id) FILTER (WHERE conversation_id IS NOT NULL) AS total_conversations
+    FROM public.messages
+    WHERE tenant_id = :tid AND contact_id IS NOT NULL
+    GROUP BY tenant_id, contact_id
+)
+UPDATE public.contacts c SET
+    total_messages      = cs.total_messages,
+    total_conversations = cs.total_conversations
+FROM contact_stats cs
+WHERE c.tenant_id = cs.tenant_id AND c.contact_id = cs.contact_id
+"""
+
+
+def update_contacts_from_messages(conn) -> int:
+    result = conn.execute(text(CONTACTS_FROM_MESSAGES), {"tid": TENANT_ID})
+    return result.rowcount
+
+
+# ---------------------------------------------------------------------------
+# Post-transform: update agents.total_messages from messages
+# ---------------------------------------------------------------------------
+
+AGENTS_MESSAGES = """
+WITH agent_msg_stats AS (
+    SELECT
+        tenant_id,
+        agent_id,
+        count(*) AS total_messages
+    FROM public.messages
+    WHERE tenant_id = :tid AND agent_id IS NOT NULL
+    GROUP BY tenant_id, agent_id
+)
+UPDATE public.agents a SET
+    total_messages = ams.total_messages
+FROM agent_msg_stats ams
+WHERE a.tenant_id = ams.tenant_id AND a.agent_id = ams.agent_id
+"""
+
+
+def update_agents_messages(conn) -> int:
+    result = conn.execute(text(AGENTS_MESSAGES), {"tid": TENANT_ID})
+    return result.rowcount
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -900,6 +1020,7 @@ TRANSFORMS = [
     ("messages",            transform_messages),
     ("chat_conversations",  transform_conversations),
     ("chat_channels",       transform_channels),
+    ("chat_topics",         transform_topics),
 ]
 
 
@@ -952,6 +1073,24 @@ def main():
         with engine.begin() as conn:
             updated = update_agents_from_conversations(conn)
         print(f"    {updated} rows upserted")
+    except Exception as exc:
+        print(f"    [ERROR] {exc}")
+
+    # Post-transform: update contacts.total_messages + total_conversations
+    print(f"\n  [contacts] Enriching from messages...")
+    try:
+        with engine.begin() as conn:
+            updated = update_contacts_from_messages(conn)
+        print(f"    {updated} contacts enriched")
+    except Exception as exc:
+        print(f"    [ERROR] {exc}")
+
+    # Post-transform: update agents.total_messages
+    print(f"\n  [agents] Enriching total_messages from messages...")
+    try:
+        with engine.begin() as conn:
+            updated = update_agents_messages(conn)
+        print(f"    {updated} agents enriched")
     except Exception as exc:
         print(f"    [ERROR] {exc}")
 

@@ -72,3 +72,27 @@ sources:
             tests: [not_null]
           - name: telefono
             tests: [not_null]
+
+      - name: chat_conversations
+        description: Agent conversation sessions with timing metrics
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+          - name: session_id
+            tests: [not_null]
+
+      - name: chat_channels
+        description: WhatsApp and webchat channel configurations
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+          - name: channel_id
+            tests: [not_null]
+
+      - name: chat_topics
+        description: Conversation topic categories
+        columns:
+          - name: tenant_id
+            tests: [not_null]
+          - name: topic_id
+            tests: [not_null]

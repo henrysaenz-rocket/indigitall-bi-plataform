@@ -3,8 +3,10 @@ Orchestrator — main entry point for the Indigitall extraction pipeline.
 
 Usage:
     docker compose exec app python -m scripts.extractors.orchestrator
+    python -m scripts.extractors.orchestrator --full-refresh
 """
 
+import argparse
 import sys
 import time
 from pathlib import Path
@@ -28,8 +30,16 @@ MAX_FALLBACK_APPS = 3
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Indigitall extraction pipeline")
+    parser.add_argument("--full-refresh", action="store_true",
+                        help="Ignore incremental cursors — re-extract everything")
+    args = parser.parse_args()
+    full_refresh = args.full_refresh
+
     print("=" * 60)
     print("  Indigitall API Extraction Pipeline")
+    if full_refresh:
+        print("  Mode: FULL REFRESH (ignoring cursors)")
     print("=" * 60)
 
     # ----- Validate credentials -----
@@ -75,13 +85,13 @@ def main():
     print(f"  Date range: {cfg.EXTRACTION_DAYS_BACK} days back")
 
     extractors = [
-        PushExtractor(client, engine),
-        ChatExtractor(client, engine),
-        SMSExtractor(client, engine),
-        EmailExtractor(client, engine),
-        InAppExtractor(client, engine),
-        CampaignsExtractor(client, engine),
-        ContactsExtractor(client, engine),
+        PushExtractor(client, engine, full_refresh=full_refresh),
+        ChatExtractor(client, engine, full_refresh=full_refresh),
+        SMSExtractor(client, engine, full_refresh=full_refresh),
+        EmailExtractor(client, engine, full_refresh=full_refresh),
+        InAppExtractor(client, engine, full_refresh=full_refresh),
+        CampaignsExtractor(client, engine, full_refresh=full_refresh),
+        ContactsExtractor(client, engine, full_refresh=full_refresh),
     ]
 
     results = {}

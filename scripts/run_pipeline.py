@@ -74,6 +74,7 @@ def report_table_counts():
     tables = [
         "contacts", "toques_daily", "toques_heatmap", "campaigns",
         "daily_stats", "agents", "messages", "toques_usuario",
+        "chat_conversations", "chat_channels", "chat_topics",
     ]
     print(f"\n  {'Table':<25s}  {'Rows':>8s}  {'Tenant rows':>12s}")
     print(f"  {'─' * 25}  {'─' * 8}  {'─' * 12}")
@@ -111,6 +112,8 @@ def main():
     parser.add_argument("--skip-extract", action="store_true", help="Skip API extraction step")
     parser.add_argument("--skip-dbt", action="store_true", help="Skip dbt run/test steps")
     parser.add_argument("--transform-only", action="store_true", help="Only run transform step")
+    parser.add_argument("--full-refresh", action="store_true",
+                        help="Ignore incremental cursors — re-extract everything")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -126,9 +129,10 @@ def main():
         print(f"\n{'─' * 60}")
         print("  STEP 1/5: Extract (API → raw.*)")
         print(f"{'─' * 60}")
-        ok = run_step("extract", [
-            sys.executable, "-m", "scripts.extractors.orchestrator"
-        ])
+        extract_cmd = [sys.executable, "-m", "scripts.extractors.orchestrator"]
+        if args.full_refresh:
+            extract_cmd.append("--full-refresh")
+        ok = run_step("extract", extract_cmd)
         if ok:
             steps_ok += 1
         else:

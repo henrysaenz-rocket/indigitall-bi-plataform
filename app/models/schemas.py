@@ -149,6 +149,22 @@ class ChatConversation(Base):
     )
 
 
+class ChatTopic(Base):
+    """Conversation topic categories from /v1/chat/topic."""
+    __tablename__ = "chat_topics"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Text, nullable=False)
+    topic_id = Column(String(100), nullable=False)
+    topic_name = Column(String(255))
+    description = Column(Text)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "topic_id", name="uq_chat_topics_tenant_tid"),
+    )
+
+
 class ChatChannel(Base):
     """WhatsApp / webchat channels from /v1/chat/channel."""
     __tablename__ = "chat_channels"

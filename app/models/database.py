@@ -34,6 +34,7 @@ def create_tables():
     """Create all tables defined in schemas."""
     from app.models.schemas import (  # noqa: F401
         Message, Contact, Agent, DailyStat,
+        ChatConversation, ChatChannel, ChatTopic,
         ToquesDaily, Campaign, ToquesHeatmap, ToquesUsuario,
         SavedQuery, Dashboard, SyncState,
     )
