@@ -122,6 +122,51 @@ class DailyStat(Base):
     )
 
 
+class ChatConversation(Base):
+    """Agent conversation sessions from /v1/chat/agent/conversations."""
+    __tablename__ = "chat_conversations"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Text, nullable=False)
+    session_id = Column(String(100), nullable=False)
+    conversation_session_id = Column(String(100))
+    contact_id = Column(String(100))
+    agent_id = Column(String(100))
+    agent_email = Column(String(255))
+    channel = Column(String(30))
+    queued_at = Column(TIMESTAMP(timezone=True))
+    assigned_at = Column(TIMESTAMP(timezone=True))
+    closed_at = Column(TIMESTAMP(timezone=True))
+    initial_session_id = Column(String(100))
+    wait_time_seconds = Column(Integer)
+    handle_time_seconds = Column(Integer)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "session_id", name="uq_chat_conv_tenant_sid"),
+        Index("idx_chat_conv_tenant_date", "tenant_id", "closed_at"),
+        Index("idx_chat_conv_agent", "tenant_id", "agent_id"),
+        Index("idx_chat_conv_contact", "tenant_id", "contact_id"),
+    )
+
+
+class ChatChannel(Base):
+    """WhatsApp / webchat channels from /v1/chat/channel."""
+    __tablename__ = "chat_channels"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Text, nullable=False)
+    channel_id = Column(String(100), nullable=False)
+    channel_type = Column(String(30))
+    channel_name = Column(String(255))
+    phone_number = Column(String(50))
+    status = Column(String(20))
+    config = Column(JSONB)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "channel_id", name="uq_chat_channels_tenant_chid"),
+    )
+
+
 # ============================================================
 # Campaigns Domain
 # ============================================================

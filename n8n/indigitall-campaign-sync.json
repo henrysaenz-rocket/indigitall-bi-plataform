@@ -1,5 +1,5 @@
 {
-  "name": "indigitall-campaign-sync",
+  "name": "indigitall-transform-only",
   "nodes": [
     {
       "parameters": {
@@ -10,168 +10,91 @@
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [250, 300]
+      "position": [250, 300],
+      "notes": "Transform-only pipeline: re-processes raw.* → public.* tables.\nRuns every hour to pick up any new raw data.\nSkips API extraction (already done by full pipeline every 6h)."
+    },
+    {
+      "parameters": {
+        "url": "http://app:8050/api/run-pipeline?skip_extract=1",
+        "method": "POST",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Trigger Transform Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300],
+      "notes": "Triggers transform + dbt only (skip_extract=1):\n1. Transform raw.* → public.* tables\n2. dbt run (staging → marts)\n\nFaster than full pipeline (~30s vs ~2min)."
     },
     {
       "parameters": {
         "conditions": {
-          "string": [{
-            "value1": "={{ $env.INDIGITALL_API_KEY }}",
-            "operation": "isNotEmpty"
+          "number": [{
+            "value1": "={{ $json.statusCode }}",
+            "operation": "equal",
+            "value2": 202
           }]
         }
       },
-      "name": "Has API Key?",
+      "name": "Pipeline Accepted?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [350, 300],
-      "notes": "Branch: live API vs mock data. Remove this node once API credentials are confirmed."
+      "position": [650, 300]
     },
     {
       "parameters": {
-        "url": "={{ $env.INDIGITALL_API_URL }}/v1/campaigns/stats",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "headerParameters": {
-          "parameters": [
-            {"name": "X-Api-Key", "value": "={{ $env.INDIGITALL_API_KEY }}"},
-            {"name": "X-Project-Id", "value": "={{ $json.project_id }}"}
-          ]
-        },
-        "queryParameters": {
-          "parameters": [
-            {"name": "date_from", "value": "={{ $json.last_cursor }}"},
-            {"name": "group_by", "value": "day,channel,project"}
-          ]
-        },
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "name": "Wait for Transform",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [850, 200],
+      "notes": "Wait 1 minute for transform to complete."
+    },
+    {
+      "parameters": {
+        "url": "http://app:8050/api/pipeline-status",
+        "method": "GET",
         "options": {
-          "timeout": 30000
+          "timeout": 10000
         }
       },
-      "name": "Fetch Campaign Stats (LIVE)",
+      "name": "Check Status",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [550, 200],
-      "notes": "BLOCKED: Replace with real indigitall API endpoint when D2/D14 arrive.\n\nExpected response format:\n{\n  \"data\": [{\"date\": \"2026-01-15\", \"channel\": \"SMS\", \"sent\": 1500, ...}],\n  \"next_cursor\": \"2026-01-15\",\n  \"count\": 300\n}"
-    },
-    {
-      "parameters": {
-        "url": "={{ $env.INDIGITALL_API_URL }}/v1/campaigns/list",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "headerParameters": {
-          "parameters": [
-            {"name": "X-Api-Key", "value": "={{ $env.INDIGITALL_API_KEY }}"}
-          ]
-        },
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "name": "Fetch Campaign List (LIVE)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [550, 400],
-      "notes": "BLOCKED: Replace with real indigitall API endpoint when D2/D14 arrive.\n\nExpected response format:\n{\n  \"data\": [{\"campaign_id\": \"c_001\", \"campaign_name\": \"...\", ...}],\n  \"count\": 10\n}"
-    },
-    {
-      "parameters": {
-        "jsCode": "// Mock data branch — campaign stats for dev/demo\nconst channels = ['SMS', 'WhatsApp', 'Email', 'Push'];\nconst projects = ['visionamos', 'demo'];\nconst records = [];\nfor (let i = 0; i < 30; i++) {\n  const sent = Math.floor(Math.random() * 5000) + 100;\n  const delivered = Math.floor(sent * (0.85 + Math.random() * 0.14));\n  records.push({\n    date: new Date(Date.now() - i * 86400000).toISOString().slice(0, 10),\n    canal: channels[Math.floor(Math.random() * channels.length)],\n    proyecto_cuenta: projects[Math.floor(Math.random() * projects.length)],\n    enviados: sent,\n    entregados: delivered,\n    clicks: Math.floor(delivered * Math.random() * 0.2),\n    chunks: Math.floor(Math.random() * 3) + 1,\n    tenant_id: 'demo'\n  });\n}\nreturn records.map(r => ({json: r}));"
-      },
-      "name": "Generate Mock Campaign Data",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [550, 550],
-      "notes": "DEV ONLY: Generates mock campaign stats for testing. Remove when live API is connected."
+      "position": [1050, 200]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT last_cursor FROM sync_state WHERE tenant_id = '{{ $json.project_id }}' AND entity = 'campaigns'"
+        "query": "INSERT INTO sync_state (tenant_id, entity, last_cursor, last_sync_at, records_synced, status) VALUES ('visionamos', 'n8n_transform', NOW()::text, NOW(), 0, 'success') ON CONFLICT (tenant_id, entity) DO UPDATE SET last_sync_at = NOW(), status = CASE WHEN '{{ $json.last_status }}' = 'success' THEN 'success' ELSE 'partial: ' || '{{ $json.last_status }}' END"
       },
-      "name": "Get Sync Cursor",
+      "name": "Log Result",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [350, 200]
-    },
-    {
-      "parameters": {
-        "operation": "insert",
-        "table": "toques_daily",
-        "columns": "tenant_id, date, canal, proyecto_cuenta, enviados, entregados, clicks, chunks, usuarios_unicos, abiertos, rebotes, bloqueados, spam, desuscritos, conversiones, ctr, tasa_entrega, open_rate, conversion_rate"
-      },
-      "name": "Upsert Toques Daily",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2,
-      "position": [750, 200],
-      "notes": "Map API response fields to table columns.\nUse ON CONFLICT (tenant_id, date, canal, proyecto_cuenta) for upsert."
-    },
-    {
-      "parameters": {
-        "operation": "insert",
-        "table": "campaigns",
-        "columns": "tenant_id, campana_id, campana_nombre, canal, proyecto_cuenta, tipo_campana, total_enviados, total_entregados, total_clicks, ctr, tasa_entrega"
-      },
-      "name": "Upsert Campaigns",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2,
-      "position": [750, 400],
-      "notes": "Map API response fields to table columns.\nUse ON CONFLICT (tenant_id, campana_id) for upsert."
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO sync_state (tenant_id, entity, last_cursor, last_sync_at, records_synced, status) VALUES ('{{ $json.project_id }}', 'campaigns', '{{ $json.new_cursor }}', NOW(), {{ $json.count }}, 'completed') ON CONFLICT (tenant_id, entity) DO UPDATE SET last_cursor = EXCLUDED.last_cursor, last_sync_at = NOW(), records_synced = EXCLUDED.records_synced, status = 'completed'"
-      },
-      "name": "Update Sync Cursor",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2,
-      "position": [950, 300]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "UPDATE sync_state SET status = 'error', last_sync_at = NOW() WHERE tenant_id = '{{ $json.project_id }}' AND entity = 'campaigns'"
-      },
-      "name": "Set Error State",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2,
-      "position": [750, 600],
-      "notes": "Called on any error to mark sync as failed"
+      "position": [1250, 200]
     }
   ],
   "connections": {
     "Schedule Trigger": {
-      "main": [[{"node": "Has API Key?", "type": "main", "index": 0}]]
+      "main": [[{"node": "Trigger Transform Pipeline", "type": "main", "index": 0}]]
     },
-    "Has API Key?": {
+    "Trigger Transform Pipeline": {
+      "main": [[{"node": "Pipeline Accepted?", "type": "main", "index": 0}]]
+    },
+    "Pipeline Accepted?": {
       "main": [
-        [{"node": "Get Sync Cursor", "type": "main", "index": 0}],
-        [{"node": "Generate Mock Campaign Data", "type": "main", "index": 0}]
+        [{"node": "Wait for Transform", "type": "main", "index": 0}],
+        []
       ]
     },
-    "Get Sync Cursor": {
-      "main": [
-        [
-          {"node": "Fetch Campaign Stats (LIVE)", "type": "main", "index": 0},
-          {"node": "Fetch Campaign List (LIVE)", "type": "main", "index": 0}
-        ]
-      ]
+    "Wait for Transform": {
+      "main": [[{"node": "Check Status", "type": "main", "index": 0}]]
     },
-    "Fetch Campaign Stats (LIVE)": {
-      "main": [[{"node": "Upsert Toques Daily", "type": "main", "index": 0}]]
-    },
-    "Fetch Campaign List (LIVE)": {
-      "main": [[{"node": "Upsert Campaigns", "type": "main", "index": 0}]]
-    },
-    "Generate Mock Campaign Data": {
-      "main": [[{"node": "Upsert Toques Daily", "type": "main", "index": 0}]]
-    },
-    "Upsert Toques Daily": {
-      "main": [[{"node": "Update Sync Cursor", "type": "main", "index": 0}]]
-    },
-    "Upsert Campaigns": {
-      "main": [[{"node": "Update Sync Cursor", "type": "main", "index": 0}]]
+    "Check Status": {
+      "main": [[{"node": "Log Result", "type": "main", "index": 0}]]
     }
   },
   "settings": {
@@ -180,5 +103,5 @@
     "errorWorkflow": ""
   },
   "pinData": {},
-  "tags": [{"name": "indigitall"}, {"name": "campaign-sync"}]
+  "tags": [{"name": "indigitall"}, {"name": "transform"}, {"name": "etl"}]
 }

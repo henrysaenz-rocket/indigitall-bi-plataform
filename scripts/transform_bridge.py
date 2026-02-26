@@ -15,6 +15,7 @@ Rules:
     - Idempotent — safe to re-run
 """
 
+import json as _json
 import sys
 import time
 from datetime import datetime, timezone
@@ -505,15 +506,400 @@ def update_daily_stats_totals(conn) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Transform: messages (from chat/history/csv stored in raw.raw_chat_stats)
+# ---------------------------------------------------------------------------
+
+MESSAGES_SQL = """
+WITH raw_rows AS (
+    SELECT
+        source_data,
+        coalesce(tenant_id, :tid) AS tenant_id,
+        loaded_at
+    FROM raw.raw_chat_stats
+    WHERE endpoint = '/v1/chat/history/csv'
+      AND source_data->'data' IS NOT NULL
+      AND jsonb_typeof(source_data->'data') = 'array'
+),
+flattened AS (
+    SELECT
+        r.tenant_id,
+        elem->>'messageId'                              AS message_id,
+        (elem->>'messageDate')::timestamptz             AS msg_timestamp,
+        (elem->>'messageDate')::timestamptz::date       AS msg_date,
+        EXTRACT(HOUR FROM (elem->>'messageDate')::timestamptz)::smallint AS msg_hour,
+        TRIM(TO_CHAR((elem->>'messageDate')::timestamptz, 'Day')) AS day_of_week,
+        elem->>'sendType'                               AS send_type,
+        elem->>'contentType'                            AS content_type,
+        elem->>'status'                                 AS status,
+        elem->>'profileName'                            AS contact_name,
+        elem->>'contactId'                              AS contact_id,
+        elem->>'agentConversationId'                    AS conversation_id,
+        elem->>'agentId'                                AS agent_id,
+        elem->>'agentCloseReason'                       AS close_reason,
+        elem->>'dfIntentName'                           AS intent,
+        CASE WHEN elem->>'isFallback' = 'Yes' THEN TRUE ELSE FALSE END AS is_fallback,
+        elem->>'content'                                AS message_body,
+        elem->>'integration'                            AS integration,
+        elem->>'channel'                                AS channel,
+        r.loaded_at
+    FROM raw_rows r,
+         jsonb_array_elements(r.source_data->'data') AS elem
+    WHERE elem->>'messageId' IS NOT NULL
+),
+deduplicated AS (
+    SELECT *,
+        row_number() OVER (
+            PARTITION BY tenant_id, message_id
+            ORDER BY loaded_at DESC
+        ) AS _rn
+    FROM flattened
+)
+SELECT tenant_id, message_id, msg_timestamp, msg_date, msg_hour, day_of_week,
+       send_type, content_type, status, contact_name, contact_id,
+       conversation_id, agent_id, close_reason, intent, is_fallback,
+       message_body, integration, channel
+FROM deduplicated WHERE _rn = 1
+"""
+
+MESSAGES_UPSERT = """
+INSERT INTO public.messages
+    (tenant_id, message_id, timestamp, date, hour, day_of_week,
+     send_type, direction, content_type, status, contact_name, contact_id,
+     conversation_id, agent_id, close_reason, intent, is_fallback,
+     message_body, is_bot, is_human, wait_time_seconds, handle_time_seconds)
+VALUES
+    (:tenant_id, :message_id, :timestamp, :date, :hour, :day_of_week,
+     :send_type, :direction, :content_type, :status, :contact_name, :contact_id,
+     :conversation_id, :agent_id, :close_reason, :intent, :is_fallback,
+     :message_body, :is_bot, :is_human, NULL, NULL)
+ON CONFLICT (tenant_id, message_id) DO UPDATE SET
+    send_type     = EXCLUDED.send_type,
+    direction     = EXCLUDED.direction,
+    content_type  = EXCLUDED.content_type,
+    status        = EXCLUDED.status,
+    contact_name  = EXCLUDED.contact_name,
+    contact_id    = EXCLUDED.contact_id,
+    conversation_id = EXCLUDED.conversation_id,
+    agent_id      = EXCLUDED.agent_id,
+    close_reason  = EXCLUDED.close_reason,
+    intent        = EXCLUDED.intent,
+    is_fallback   = EXCLUDED.is_fallback,
+    message_body  = EXCLUDED.message_body,
+    is_bot        = EXCLUDED.is_bot,
+    is_human      = EXCLUDED.is_human
+"""
+
+
+def _derive_direction(send_type: str, integration: str, channel: str) -> str:
+    """Derive message direction from sendType + integration fields."""
+    if send_type == "input":
+        return "Inbound"
+    elif send_type == "operator":
+        return "Agent"
+    elif send_type == "dialogflow":
+        return "Bot"
+    elif send_type == "agent_notification":
+        return "System"
+    elif integration == "df":
+        return "Bot"
+    return "Outbound"
+
+
+def transform_messages(conn) -> int:
+    rows = conn.execute(text(MESSAGES_SQL), {"tid": TENANT_ID}).fetchall()
+    count = 0
+    for r in rows:
+        send_type = r[6] or ""
+        integration = r[17] or ""
+        channel = r[18] or ""
+        direction = _derive_direction(send_type, integration, channel)
+        is_bot = integration == "df" and send_type != "input"
+        is_human = send_type == "operator"
+
+        conn.execute(text(MESSAGES_UPSERT), {
+            "tenant_id": r[0],
+            "message_id": str(r[1]),
+            "timestamp": r[2],
+            "date": r[3],
+            "hour": int(r[4]) if r[4] is not None else 0,
+            "day_of_week": (r[5] or "Unknown")[:10],
+            "send_type": send_type[:30] if send_type else None,
+            "direction": direction,
+            "content_type": (r[7] or "")[:30] if r[7] else None,
+            "status": (r[8] or "")[:20] if r[8] else None,
+            "contact_name": r[9],
+            "contact_id": r[10],
+            "conversation_id": str(r[11]) if r[11] else None,
+            "agent_id": str(r[12]) if r[12] else None,
+            "close_reason": r[13],
+            "intent": r[14],
+            "is_fallback": r[15],
+            "message_body": r[16],
+            "is_bot": is_bot,
+            "is_human": is_human,
+        })
+        count += 1
+    return count
+
+
+# ---------------------------------------------------------------------------
+# Transform: chat_conversations (from agent/conversations in raw.raw_chat_stats)
+# ---------------------------------------------------------------------------
+
+CONVERSATIONS_SQL = """
+WITH raw_rows AS (
+    SELECT
+        source_data,
+        coalesce(tenant_id, :tid) AS tenant_id,
+        loaded_at
+    FROM raw.raw_chat_stats
+    WHERE endpoint = '/v1/chat/agent/conversations'
+      AND source_data->'data' IS NOT NULL
+      AND jsonb_typeof(source_data->'data') = 'array'
+),
+flattened AS (
+    SELECT
+        r.tenant_id,
+        (elem->>'agentSessionId')::text                 AS session_id,
+        (elem->>'conversationSessionId')::text          AS conversation_session_id,
+        elem->>'contactId'                              AS contact_id,
+        (elem->>'agentId')::text                        AS agent_id,
+        elem->>'email'                                  AS agent_email,
+        elem->>'channel'                                AS channel,
+        (elem->>'queuedAt')::timestamptz                AS queued_at,
+        (elem->>'assignedAt')::timestamptz              AS assigned_at,
+        (elem->>'closedAt')::timestamptz                AS closed_at,
+        (elem->>'initialAgentSession')::text            AS initial_session_id,
+        r.loaded_at
+    FROM raw_rows r,
+         jsonb_array_elements(r.source_data->'data') AS elem
+    WHERE elem->>'agentSessionId' IS NOT NULL
+),
+deduplicated AS (
+    SELECT *,
+        row_number() OVER (
+            PARTITION BY tenant_id, session_id
+            ORDER BY loaded_at DESC
+        ) AS _rn
+    FROM flattened
+)
+SELECT tenant_id, session_id, conversation_session_id, contact_id, agent_id,
+       agent_email, channel, queued_at, assigned_at, closed_at, initial_session_id
+FROM deduplicated WHERE _rn = 1
+"""
+
+CONVERSATIONS_UPSERT = """
+INSERT INTO public.chat_conversations
+    (tenant_id, session_id, conversation_session_id, contact_id, agent_id,
+     agent_email, channel, queued_at, assigned_at, closed_at,
+     initial_session_id, wait_time_seconds, handle_time_seconds)
+VALUES
+    (:tenant_id, :session_id, :conversation_session_id, :contact_id, :agent_id,
+     :agent_email, :channel, :queued_at, :assigned_at, :closed_at,
+     :initial_session_id, :wait_time_seconds, :handle_time_seconds)
+ON CONFLICT (tenant_id, session_id) DO UPDATE SET
+    conversation_session_id = EXCLUDED.conversation_session_id,
+    contact_id       = EXCLUDED.contact_id,
+    agent_id         = EXCLUDED.agent_id,
+    agent_email      = EXCLUDED.agent_email,
+    channel          = EXCLUDED.channel,
+    queued_at        = EXCLUDED.queued_at,
+    assigned_at      = EXCLUDED.assigned_at,
+    closed_at        = EXCLUDED.closed_at,
+    initial_session_id = EXCLUDED.initial_session_id,
+    wait_time_seconds  = EXCLUDED.wait_time_seconds,
+    handle_time_seconds = EXCLUDED.handle_time_seconds
+"""
+
+
+def transform_conversations(conn) -> int:
+    rows = conn.execute(text(CONVERSATIONS_SQL), {"tid": TENANT_ID}).fetchall()
+    count = 0
+    for r in rows:
+        queued_at = r[7]
+        assigned_at = r[8]
+        closed_at = r[9]
+
+        wait_secs = None
+        if queued_at and assigned_at:
+            wait_secs = int((assigned_at - queued_at).total_seconds())
+
+        handle_secs = None
+        if assigned_at and closed_at:
+            handle_secs = int((closed_at - assigned_at).total_seconds())
+
+        conn.execute(text(CONVERSATIONS_UPSERT), {
+            "tenant_id": r[0],
+            "session_id": str(r[1]),
+            "conversation_session_id": str(r[2]) if r[2] else None,
+            "contact_id": r[3],
+            "agent_id": str(r[4]) if r[4] else None,
+            "agent_email": r[5],
+            "channel": r[6],
+            "queued_at": queued_at,
+            "assigned_at": assigned_at,
+            "closed_at": closed_at,
+            "initial_session_id": str(r[10]) if r[10] else None,
+            "wait_time_seconds": wait_secs,
+            "handle_time_seconds": handle_secs,
+        })
+        count += 1
+    return count
+
+
+# ---------------------------------------------------------------------------
+# Transform: chat_channels (from chat/channel in raw.raw_chat_stats)
+# ---------------------------------------------------------------------------
+
+CHANNELS_SQL = """
+WITH raw_rows AS (
+    SELECT
+        source_data,
+        coalesce(tenant_id, :tid) AS tenant_id,
+        loaded_at
+    FROM raw.raw_chat_stats
+    WHERE endpoint = '/v1/chat/channel'
+      AND source_data->'data' IS NOT NULL
+      AND jsonb_typeof(source_data->'data') = 'array'
+),
+flattened AS (
+    SELECT
+        r.tenant_id,
+        coalesce(elem->>'id', elem->>'channelId')::text AS channel_id,
+        elem->>'type'                                   AS channel_type,
+        elem->>'name'                                   AS channel_name,
+        elem->>'phoneNumber'                            AS phone_number,
+        elem->>'status'                                 AS status,
+        elem                                            AS config,
+        r.loaded_at
+    FROM raw_rows r,
+         jsonb_array_elements(r.source_data->'data') AS elem
+),
+deduplicated AS (
+    SELECT *,
+        row_number() OVER (
+            PARTITION BY tenant_id, channel_id
+            ORDER BY loaded_at DESC
+        ) AS _rn
+    FROM flattened
+    WHERE channel_id IS NOT NULL
+)
+SELECT tenant_id, channel_id, channel_type, channel_name, phone_number, status, config
+FROM deduplicated WHERE _rn = 1
+"""
+
+CHANNELS_UPSERT = """
+INSERT INTO public.chat_channels
+    (tenant_id, channel_id, channel_type, channel_name, phone_number, status, config)
+VALUES
+    (:tenant_id, :channel_id, :channel_type, :channel_name, :phone_number, :status, :config)
+ON CONFLICT (tenant_id, channel_id) DO UPDATE SET
+    channel_type = EXCLUDED.channel_type,
+    channel_name = EXCLUDED.channel_name,
+    phone_number = EXCLUDED.phone_number,
+    status       = EXCLUDED.status,
+    config       = EXCLUDED.config
+"""
+
+
+def transform_channels(conn) -> int:
+    rows = conn.execute(text(CHANNELS_SQL), {"tid": TENANT_ID}).fetchall()
+    count = 0
+    for r in rows:
+        config_val = r[6]
+        if config_val and not isinstance(config_val, str):
+            config_val = _json.dumps(config_val) if not isinstance(config_val, dict) else config_val
+
+        conn.execute(text(CHANNELS_UPSERT), {
+            "tenant_id": r[0],
+            "channel_id": str(r[1]),
+            "channel_type": r[2],
+            "channel_name": r[3],
+            "phone_number": r[4],
+            "status": r[5],
+            "config": config_val,
+        })
+        count += 1
+    return count
+
+
+# ---------------------------------------------------------------------------
+# Post-transform: update daily_stats from messages + conversations
+# ---------------------------------------------------------------------------
+
+DAILY_STATS_FROM_MESSAGES = """
+WITH msg_stats AS (
+    SELECT
+        tenant_id,
+        date,
+        count(*) AS total_messages,
+        count(DISTINCT contact_id) AS unique_contacts,
+        count(DISTINCT conversation_id) FILTER (WHERE conversation_id IS NOT NULL) AS conversations,
+        count(*) FILTER (WHERE is_fallback = TRUE) AS fallback_count
+    FROM public.messages
+    WHERE tenant_id = :tid
+    GROUP BY tenant_id, date
+)
+INSERT INTO public.daily_stats
+    (tenant_id, date, total_messages, unique_contacts, conversations, fallback_count)
+SELECT tenant_id, date, total_messages, unique_contacts, conversations, fallback_count
+FROM msg_stats
+ON CONFLICT (tenant_id, date) DO UPDATE SET
+    total_messages  = GREATEST(daily_stats.total_messages, EXCLUDED.total_messages),
+    unique_contacts = GREATEST(daily_stats.unique_contacts, EXCLUDED.unique_contacts),
+    conversations   = GREATEST(daily_stats.conversations, EXCLUDED.conversations),
+    fallback_count  = GREATEST(daily_stats.fallback_count, EXCLUDED.fallback_count)
+"""
+
+
+def update_daily_stats_from_messages(conn) -> int:
+    result = conn.execute(text(DAILY_STATS_FROM_MESSAGES), {"tid": TENANT_ID})
+    return result.rowcount
+
+
+# ---------------------------------------------------------------------------
+# Post-transform: update agents from conversations
+# ---------------------------------------------------------------------------
+
+AGENTS_FROM_CONVERSATIONS = """
+WITH agent_stats AS (
+    SELECT
+        tenant_id,
+        agent_id,
+        count(*) AS conversations_handled,
+        avg(handle_time_seconds) FILTER (WHERE handle_time_seconds IS NOT NULL) AS avg_handle
+    FROM public.chat_conversations
+    WHERE tenant_id = :tid AND agent_id IS NOT NULL
+    GROUP BY tenant_id, agent_id
+)
+INSERT INTO public.agents
+    (tenant_id, agent_id, total_messages, conversations_handled, avg_handle_time_seconds)
+SELECT tenant_id, agent_id, 0, conversations_handled, avg_handle::int
+FROM agent_stats
+ON CONFLICT (tenant_id, agent_id) DO UPDATE SET
+    conversations_handled    = EXCLUDED.conversations_handled,
+    avg_handle_time_seconds  = EXCLUDED.avg_handle_time_seconds
+"""
+
+
+def update_agents_from_conversations(conn) -> int:
+    result = conn.execute(text(AGENTS_FROM_CONVERSATIONS), {"tid": TENANT_ID})
+    return result.rowcount
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 TRANSFORMS = [
-    ("contacts",       transform_contacts),
-    ("daily_stats",    transform_daily_stats),    # must run BEFORE toques_daily (FK dependency)
-    ("toques_daily",   transform_toques_daily),
-    ("toques_heatmap", transform_heatmap),
-    ("campaigns",      transform_campaigns),
+    ("contacts",            transform_contacts),
+    ("daily_stats",         transform_daily_stats),    # must run BEFORE toques_daily (FK dependency)
+    ("toques_daily",        transform_toques_daily),
+    ("toques_heatmap",      transform_heatmap),
+    ("campaigns",           transform_campaigns),
+    ("messages",            transform_messages),
+    ("chat_conversations",  transform_conversations),
+    ("chat_channels",       transform_channels),
 ]
 
 
@@ -548,6 +934,24 @@ def main():
         with engine.begin() as conn:
             updated = update_daily_stats_totals(conn)
         print(f"    {updated} rows updated")
+    except Exception as exc:
+        print(f"    [ERROR] {exc}")
+
+    # Post-transform: update daily_stats from messages (chat)
+    print(f"\n  [daily_stats] Updating from chat messages...")
+    try:
+        with engine.begin() as conn:
+            updated = update_daily_stats_from_messages(conn)
+        print(f"    {updated} rows upserted")
+    except Exception as exc:
+        print(f"    [ERROR] {exc}")
+
+    # Post-transform: update agents from conversations
+    print(f"\n  [agents] Updating from chat conversations...")
+    try:
+        with engine.begin() as conn:
+            updated = update_agents_from_conversations(conn)
+        print(f"    {updated} rows upserted")
     except Exception as exc:
         print(f"    [ERROR] {exc}")
 
