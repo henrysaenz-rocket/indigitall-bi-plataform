@@ -201,6 +201,10 @@ def create_navbar():
                             href="/", active="exact",
                         )),
                         dbc.NavItem(dbc.NavLink(
+                            [html.I(className="bi bi-activity me-1"), "Operaciones"],
+                            href="/operaciones", active="exact",
+                        )),
+                        dbc.NavItem(dbc.NavLink(
                             [html.I(className="bi bi-search me-1"), "Consultas"],
                             href="/consultas", active="exact",
                         )),
@@ -286,6 +290,7 @@ import app.callbacks.query_list_cb  # noqa: F401
 import app.callbacks.dashboard_list_cb  # noqa: F401
 import app.callbacks.dashboard_view_cb  # noqa: F401
 import app.callbacks.data_explorer_cb  # noqa: F401
+import app.callbacks.operations_cb  # noqa: F401
 
 
 if __name__ == "__main__":

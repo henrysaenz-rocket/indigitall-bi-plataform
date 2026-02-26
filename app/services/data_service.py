@@ -5,6 +5,7 @@ Returns pd.DataFrame to maintain API compatibility with ChartService.
 """
 
 import pandas as pd
+from datetime import date as date_type, timedelta
 from sqlalchemy import select, func, text, case, and_
 from typing import Optional, List, Dict, Any
 
@@ -296,6 +297,193 @@ class DataService:
         t = Message.__table__
         stmt = select(t).where(self._tenant_filter(t, tenant_filter))
         return self._exec(stmt)
+
+    # --- Operations dashboard: filtered queries ---
+
+    def get_summary_stats_for_period(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+    ) -> Dict[str, Any]:
+        """KPIs for a date range with trend vs. the immediately preceding period."""
+        with engine.connect() as conn:
+            t = Message.__table__
+            w = self._tenant_filter(t, tenant_filter)
+            msg_count = conn.execute(
+                select(func.count()).select_from(t).where(w)
+            ).scalar() or 0
+
+            use_messages = msg_count > 0
+            if use_messages and start_date and end_date:
+                cur = self._period_kpis_messages(conn, t, w, start_date, end_date)
+                delta = (end_date - start_date).days + 1
+                prev_end = start_date - timedelta(days=1)
+                prev_start = prev_end - timedelta(days=delta - 1)
+                prev = self._period_kpis_messages(conn, t, w, prev_start, prev_end)
+            else:
+                cur = self._period_kpis_daily(conn, tenant_filter, start_date, end_date)
+                if start_date and end_date:
+                    delta = (end_date - start_date).days + 1
+                    prev_end = start_date - timedelta(days=1)
+                    prev_start = prev_end - timedelta(days=delta - 1)
+                else:
+                    prev_start = prev_end = None
+                prev = self._period_kpis_daily(conn, tenant_filter, prev_start, prev_end)
+
+        for k, v in prev.items():
+            cur[f"prev_{k}"] = v
+        return cur
+
+    @staticmethod
+    def _period_kpis_messages(conn, t, base_where, start, end):
+        f = and_(base_where, t.c.date >= start, t.c.date <= end)
+        row = conn.execute(
+            select(
+                func.count().label("total_messages"),
+                func.count(func.distinct(t.c.contact_id)).label("unique_contacts"),
+                func.count(func.distinct(t.c.conversation_id)).label("conversations"),
+                func.sum(case((t.c.is_fallback == True, 1), else_=0)).label("fallback_count"),  # noqa: E712
+                func.avg(t.c.wait_time_seconds).label("avg_wait_seconds"),
+            ).where(f)
+        ).first()
+        total = row.total_messages or 0
+        fb = row.fallback_count or 0
+        return {
+            "total_messages": total,
+            "unique_contacts": row.unique_contacts or 0,
+            "conversations": row.conversations or 0,
+            "avg_wait_seconds": round(float(row.avg_wait_seconds or 0), 1),
+            "fallback_rate": round(fb / total * 100, 2) if total > 0 else 0,
+        }
+
+    def _period_kpis_daily(self, conn, tenant_filter, start, end):
+        dt = DailyStat.__table__
+        dw = self._tenant_filter(dt, tenant_filter)
+        if start and end:
+            dw = and_(dw, dt.c.date >= start, dt.c.date <= end)
+        row = conn.execute(
+            select(
+                func.coalesce(func.sum(dt.c.total_messages), 0).label("total_messages"),
+                func.coalesce(func.sum(dt.c.unique_contacts), 0).label("unique_contacts"),
+                func.coalesce(func.sum(dt.c.conversations), 0).label("conversations"),
+                func.coalesce(func.sum(dt.c.fallback_count), 0).label("fallback_count"),
+            ).where(dw)
+        ).first()
+        total = row.total_messages or 0
+        fb = row.fallback_count or 0
+        return {
+            "total_messages": total,
+            "unique_contacts": row.unique_contacts or 0,
+            "conversations": row.conversations or 0,
+            "avg_wait_seconds": 0,
+            "fallback_rate": round(fb / total * 100, 2) if total > 0 else 0,
+        }
+
+    def get_messages_over_time_filtered(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+    ) -> pd.DataFrame:
+        """Messages per day within a date range (falls back to DailyStat)."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+        stmt = (
+            select(t.c.date, func.count().label("count"))
+            .where(w)
+            .group_by(t.c.date)
+            .order_by(t.c.date)
+        )
+        df = self._exec(stmt)
+        if df.empty and start_date and end_date:
+            dt = DailyStat.__table__
+            dw = self._tenant_filter(dt, tenant_filter)
+            dw = and_(dw, dt.c.date >= start_date, dt.c.date <= end_date)
+            stmt = (
+                select(dt.c.date, dt.c.total_messages.label("count"))
+                .where(dw)
+                .order_by(dt.c.date)
+            )
+            df = self._exec(stmt)
+        return df
+
+    def get_direction_breakdown_filtered(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+    ) -> pd.DataFrame:
+        """Messages by direction within a date range."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+        stmt = (
+            select(t.c.direction, func.count().label("count"))
+            .where(w)
+            .group_by(t.c.direction)
+        )
+        return self._exec(stmt)
+
+    def get_agent_performance_detailed(
+        self, tenant_filter: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Agent-level metrics (tries dbt mart, then messages, then agents table)."""
+        # Try dbt mart first
+        try:
+            sql = text(
+                "SELECT agent_id, total_messages, conversations_handled, "
+                "unique_contacts, avg_handle_seconds, avg_wait_seconds, active_days "
+                "FROM marts.fct_agent_performance WHERE tenant_id = :tenant"
+            )
+            with engine.connect() as conn:
+                df = pd.read_sql(sql, conn, params={"tenant": tenant_filter})
+            if not df.empty:
+                return df
+        except Exception:
+            pass
+
+        # Fallback: aggregate from messages
+        t = Message.__table__
+        w = and_(self._tenant_filter(t, tenant_filter), t.c.agent_id.isnot(None))
+        stmt = (
+            select(
+                t.c.agent_id,
+                func.count().label("total_messages"),
+                func.count(func.distinct(t.c.conversation_id)).label("conversations_handled"),
+                func.count(func.distinct(t.c.contact_id)).label("unique_contacts"),
+                func.avg(t.c.handle_time_seconds).label("avg_handle_seconds"),
+                func.avg(t.c.wait_time_seconds).label("avg_wait_seconds"),
+                func.count(func.distinct(t.c.date)).label("active_days"),
+            )
+            .where(w)
+            .group_by(t.c.agent_id)
+            .order_by(func.count().desc())
+        )
+        df = self._exec(stmt)
+        if not df.empty:
+            return df
+
+        # Final fallback: agents table
+        at = Agent.__table__
+        aw = self._tenant_filter(at, tenant_filter)
+        stmt = (
+            select(
+                at.c.agent_id,
+                at.c.total_messages,
+                at.c.conversations_handled,
+            )
+            .where(aw)
+            .order_by(at.c.total_messages.desc())
+        )
+        df = self._exec(stmt)
+        for col in ["unique_contacts", "avg_handle_seconds", "avg_wait_seconds", "active_days"]:
+            if col not in df.columns:
+                df[col] = 0
+        return df
 
     def get_contacts_dataframe(self, tenant_filter: Optional[str] = None) -> pd.DataFrame:
         t = Contact.__table__
