@@ -42,6 +42,11 @@ node_modules/
 *.log
 logs/
 
+# Sample/generated data (large files, not source code)
+scripts/api_responses/agent_conversations_sample.json
+scripts/api_responses/chat_history_sample.csv
+scripts/data_sample/
+
 # Supabase local data (but keep config files)
 volumes/db/
 volumes/storage/
