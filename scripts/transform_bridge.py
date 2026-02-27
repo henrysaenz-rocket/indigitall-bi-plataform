@@ -808,7 +808,7 @@ def transform_channels(conn) -> int:
     for r in rows:
         config_val = r[6]
         if config_val and not isinstance(config_val, str):
-            config_val = _json.dumps(config_val) if not isinstance(config_val, dict) else config_val
+            config_val = _json.dumps(config_val)
 
         conn.execute(text(CHANNELS_UPSERT), {
             "tenant_id": r[0],
@@ -924,6 +924,35 @@ def update_daily_stats_from_messages(conn) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Pre-messages: ensure all agent_ids from raw messages exist in agents table
+# ---------------------------------------------------------------------------
+
+AGENTS_STUBS_FROM_RAW_MESSAGES = """
+WITH raw_agents AS (
+    SELECT DISTINCT
+        coalesce(r.tenant_id, :tid) AS tenant_id,
+        elem->>'agentId' AS agent_id
+    FROM raw.raw_chat_stats r,
+         jsonb_array_elements(r.source_data->'data') AS elem
+    WHERE r.endpoint = '/v1/chat/history/csv'
+      AND r.source_data->'data' IS NOT NULL
+      AND jsonb_typeof(r.source_data->'data') = 'array'
+      AND elem->>'agentId' IS NOT NULL
+      AND elem->>'agentId' != ''
+)
+INSERT INTO public.agents (tenant_id, agent_id, total_messages, conversations_handled)
+SELECT tenant_id, agent_id, 0, 0
+FROM raw_agents
+ON CONFLICT (tenant_id, agent_id) DO NOTHING
+"""
+
+
+def ensure_agents_from_raw_messages(conn) -> int:
+    result = conn.execute(text(AGENTS_STUBS_FROM_RAW_MESSAGES), {"tid": TENANT_ID})
+    return result.rowcount
+
+
+# ---------------------------------------------------------------------------
 # Post-transform: update agents from conversations
 # ---------------------------------------------------------------------------
 
@@ -1011,28 +1040,25 @@ def update_agents_messages(conn) -> int:
 # Main
 # ---------------------------------------------------------------------------
 
-TRANSFORMS = [
+TRANSFORMS_PHASE1 = [
     ("contacts",            transform_contacts),
     ("daily_stats",         transform_daily_stats),    # must run BEFORE toques_daily (FK dependency)
     ("toques_daily",        transform_toques_daily),
     ("toques_heatmap",      transform_heatmap),
     ("campaigns",           transform_campaigns),
-    ("messages",            transform_messages),
-    ("chat_conversations",  transform_conversations),
+    ("chat_conversations",  transform_conversations),  # must run BEFORE messages (agents FK)
     ("chat_channels",       transform_channels),
     ("chat_topics",         transform_topics),
 ]
 
+TRANSFORMS_PHASE2 = [
+    ("messages",            transform_messages),        # needs agents populated first
+]
 
-def main():
-    print("=" * 60)
-    print("  Transform Bridge — raw.* JSONB → public.* tables")
-    print("=" * 60)
 
-    start = time.time()
-    results = {}
-
-    for entity, transform_fn in TRANSFORMS:
+def _run_transforms(transforms, results):
+    """Run a list of (name, fn) transforms, updating results dict."""
+    for entity, transform_fn in transforms:
         print(f"\n  [{entity}] Transforming...")
         try:
             with engine.begin() as conn:
@@ -1048,6 +1074,41 @@ def main():
                     update_sync_state(conn, entity, 0, f"error: {str(exc)[:200]}")
             except Exception:
                 pass
+
+
+def main():
+    print("=" * 60)
+    print("  Transform Bridge — raw.* JSONB → public.* tables")
+    print("=" * 60)
+
+    start = time.time()
+    results = {}
+
+    # Phase 1: all tables except messages (conversations must load first)
+    print("\n--- Phase 1: base tables + conversations ---")
+    _run_transforms(TRANSFORMS_PHASE1, results)
+
+    # Mid-pipeline: populate agents from conversations (messages FK depends on this)
+    print(f"\n  [agents] Populating from chat conversations (pre-messages)...")
+    try:
+        with engine.begin() as conn:
+            updated = update_agents_from_conversations(conn)
+        print(f"    {updated} agents from conversations")
+    except Exception as exc:
+        print(f"    [ERROR] {exc}")
+
+    # Mid-pipeline: ensure stub agents exist for any agent_id in raw messages
+    print(f"\n  [agents] Ensuring stubs from raw messages...")
+    try:
+        with engine.begin() as conn:
+            updated = ensure_agents_from_raw_messages(conn)
+        print(f"    {updated} additional agent stubs created")
+    except Exception as exc:
+        print(f"    [ERROR] {exc}")
+
+    # Phase 2: messages (now agents exist for FK constraint)
+    print("\n--- Phase 2: messages ---")
+    _run_transforms(TRANSFORMS_PHASE2, results)
 
     # Post-transform: update daily_stats with aggregated totals from toques_daily
     print(f"\n  [daily_stats] Updating totals from toques_daily...")
@@ -1067,8 +1128,8 @@ def main():
     except Exception as exc:
         print(f"    [ERROR] {exc}")
 
-    # Post-transform: update agents from conversations
-    print(f"\n  [agents] Updating from chat conversations...")
+    # Post-transform: update agents from conversations (refresh with full data)
+    print(f"\n  [agents] Refreshing from chat conversations...")
     try:
         with engine.begin() as conn:
             updated = update_agents_from_conversations(conn)
