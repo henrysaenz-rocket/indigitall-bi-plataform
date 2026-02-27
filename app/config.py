@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # Anthropic AI
     ANTHROPIC_API_KEY: str = ""
 
+    # OpenAI (fallback)
+    OPENAI_API_KEY: str = ""
+
     # Sentry
     SENTRY_DSN: str = ""
 
@@ -39,6 +42,10 @@ class Settings(BaseSettings):
     @property
     def has_ai_key(self) -> bool:
         return bool(self.ANTHROPIC_API_KEY) and self.ANTHROPIC_API_KEY != "sk-ant-your-key-here"
+
+    @property
+    def has_openai_key(self) -> bool:
+        return bool(self.OPENAI_API_KEY) and self.OPENAI_API_KEY.startswith("sk-")
 
 
 settings = Settings()

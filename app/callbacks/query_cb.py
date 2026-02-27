@@ -17,10 +17,24 @@ import plotly.express as px
 from app.services.data_service import DataService
 from app.services.ai_agent import AIAgent
 from app.services.storage_service import StorageService
+from app.services.label_service import get_label
 from app.config import settings
 
 # Chart color sequence from design system
 CHART_COLORS = ["#1E88E5", "#76C043", "#A0A3BD", "#42A5F5", "#1565C0", "#FFC107", "#9C27B0", "#FF5722"]
+
+# Suggestion chips (must match query.py SUGGESTIONS order and content)
+SUGGESTIONS = [
+    "Dame un resumen general de los datos",
+    "Cual es la tasa de fallback?",
+    "Mensajes por hora del dia",
+    "Top 10 contactos mas activos",
+    "Rendimiento de agentes",
+    "Comparacion entre entidades",
+    "Distribucion de intenciones",
+    "Mensajes por dia de la semana",
+    "Tendencia de mensajes en el tiempo",
+]
 
 # Singleton-ish agent (created once per worker process)
 _data_service = DataService()
@@ -74,8 +88,175 @@ def _auto_chart(df, chart_type=None):
         font_family="Inter, sans-serif",
         margin=dict(l=20, r=20, t=30, b=20),
         height=350,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#1A1A2E",
+        xaxis_title=get_label(x_col),
+        yaxis_title=get_label(y_col),
     )
     return fig
+
+
+def _get_source_table_name(ai_function):
+    """Map AI function names to their source database table."""
+    TABLE_MAP = {
+        "summary": "messages",
+        "fallback_rate": "messages",
+        "messages_by_direction": "messages",
+        "messages_by_hour": "messages",
+        "messages_over_time": "messages",
+        "messages_by_day_of_week": "messages",
+        "top_contacts": "messages",
+        "intent_distribution": "messages",
+        "agent_performance": "messages",
+        "entity_comparison": "messages",
+        "high_messages_day": "messages",
+        "high_messages_week": "messages",
+        "high_messages_month": "messages",
+    }
+    return TABLE_MAP.get(ai_function, "messages")
+
+
+def _fetch_full_source_table(table_name, tenant):
+    """Fetch full source table with all columns (limited to 200 rows)."""
+    from sqlalchemy import text as sa_text
+    from app.models.database import engine as db_engine
+    try:
+        safe_tables = {
+            "messages", "contacts", "agents", "daily_stats",
+            "chat_conversations", "chat_channels", "chat_topics",
+            "campaigns", "toques_daily", "toques_heatmap", "toques_usuario",
+        }
+        if table_name not in safe_tables:
+            table_name = "messages"
+
+        sql = f"SELECT * FROM {table_name}"
+        if tenant:
+            sql += f" WHERE tenant_id = :tenant"
+        sql += " ORDER BY 1 DESC LIMIT 200"
+
+        with db_engine.connect() as conn:
+            if tenant:
+                return pd.read_sql(sa_text(sql), conn, params={"tenant": tenant})
+            return pd.read_sql(sa_text(sql), conn)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _build_source_tab(df, ai_function, query_details, tenant=None):
+    """Build the 'Fuente de Datos' tab showing the FULL source table."""
+    if df.empty:
+        return html.Div([
+            html.I(className="bi bi-database display-4 text-muted"),
+            html.P("Sin datos para mostrar.", className="text-muted mt-3"),
+        ], className="text-center py-5")
+
+    from dash import dash_table
+
+    # Determine source table and fetch ALL columns
+    if query_details and query_details.get("sql"):
+        # For ad-hoc SQL, extract table name from query
+        import re
+        match = re.search(r"FROM\s+(\w+)", query_details["sql"], re.IGNORECASE)
+        source_table = match.group(1) if match else "messages"
+    else:
+        source_table = _get_source_table_name(ai_function)
+
+    full_df = _fetch_full_source_table(source_table, tenant)
+    if full_df.empty:
+        full_df = df  # Fallback to result df if source fetch fails
+
+    elements = []
+
+    # Metadata badges
+    badges = []
+    badges.append(dbc.Badge(f"Tabla: {source_table}", color="dark", className="me-2"))
+    if ai_function:
+        badges.append(dbc.Badge(f"Funcion: {ai_function}", color="primary", className="me-2"))
+    badges.append(dbc.Badge(
+        f"{len(full_df)} filas x {len(full_df.columns)} columnas",
+        color="info", className="me-2",
+    ))
+    if query_details and query_details.get("sql"):
+        badges.append(dbc.Badge("SQL Ad-hoc", color="warning", className="me-2"))
+    elements.append(html.Div(badges, className="mb-3"))
+
+    # Column schema table (from the FULL source table)
+    schema_rows = []
+    for col in full_df.columns:
+        dtype = str(full_df[col].dtype)
+        nulls = int(full_df[col].isna().sum())
+        unique = int(full_df[col].nunique())
+        schema_rows.append({
+            "columna": col,
+            "label": get_label(col),
+            "tipo": dtype,
+            "nulos": nulls,
+            "unicos": unique,
+        })
+
+    elements.append(html.H6("Esquema de Columnas (tabla completa)", className="mt-2 mb-2"))
+    elements.append(
+        dash_table.DataTable(
+            data=schema_rows,
+            columns=[
+                {"name": "Columna", "id": "columna"},
+                {"name": "Label", "id": "label"},
+                {"name": "Tipo", "id": "tipo"},
+                {"name": "Nulos", "id": "nulos"},
+                {"name": "Unicos", "id": "unicos"},
+            ],
+            page_size=10,
+            style_table={"overflowX": "auto"},
+            style_header={
+                "backgroundColor": "#F5F7FA",
+                "fontWeight": "600",
+                "fontSize": "12px",
+            },
+            style_cell={"fontSize": "12px", "fontFamily": "Inter, sans-serif", "padding": "6px 8px"},
+        )
+    )
+
+    # SQL query if ad-hoc
+    if query_details and query_details.get("sql"):
+        elements.append(html.H6("SQL Ejecutado", className="mt-3 mb-2"))
+        elements.append(html.Pre(query_details["sql"], className="bg-light p-3 rounded small"))
+
+    # Full source table data with ALL columns
+    elements.append(html.H6(
+        f"Datos Completos — {source_table} (primeras {len(full_df)} filas)",
+        className="mt-3 mb-2",
+    ))
+    elements.append(
+        dash_table.DataTable(
+            data=full_df.to_dict("records"),
+            columns=[{"name": get_label(c), "id": c} for c in full_df.columns],
+            page_size=20,
+            sort_action="native",
+            filter_action="native",
+            style_table={"overflowX": "auto"},
+            style_header={
+                "backgroundColor": "#F5F7FA",
+                "fontWeight": "600",
+                "fontSize": "12px",
+                "color": "#6E7191",
+            },
+            style_cell={
+                "fontSize": "12px",
+                "fontFamily": "Inter, sans-serif",
+                "padding": "6px 8px",
+                "maxWidth": "200px",
+                "overflow": "hidden",
+                "textOverflow": "ellipsis",
+            },
+            style_data_conditional=[{
+                "if": {"row_index": "odd"},
+                "backgroundColor": "#FAFBFC",
+            }],
+        )
+    )
+
+    return html.Div(elements)
 
 
 # --- Main chat callback ---
@@ -83,6 +264,7 @@ def _auto_chart(df, chart_type=None):
 @callback(
     Output("chat-messages", "children"),
     Output("results-container", "children"),
+    Output("source-data-container", "children"),
     Output("chat-input", "value"),
     Output("chat-history", "data"),
     Output("query-result", "data"),
@@ -153,7 +335,7 @@ def send_message(n_clicks, n_submit, message, tenant, history):
         results.append(
             dash_table.DataTable(
                 data=df.to_dict("records"),
-                columns=[{"name": c, "id": c} for c in df.columns],
+                columns=[{"name": get_label(c), "id": c} for c in df.columns],
                 page_size=15,
                 style_table={"overflowX": "auto"},
                 style_header={
@@ -196,6 +378,9 @@ def send_message(n_clicks, n_submit, message, tenant, history):
             html.P(explanation, className="text-muted mt-3"),
         ], className="text-center py-5"))
 
+    # Build source-data tab content (full source table with all columns)
+    source_content = _build_source_tab(df, ai_function, query_details, tenant=tenant)
+
     # Store query result for CSV export / save
     query_data = {
         "query_text": message,
@@ -208,7 +393,7 @@ def send_message(n_clicks, n_submit, message, tenant, history):
     }
 
     has_data = not df.empty
-    return chat_elements, results, "", history, query_data, not has_data, not has_data
+    return chat_elements, results, source_content, "", history, query_data, not has_data, not has_data
 
 
 # --- Suggestion chips ---
@@ -228,7 +413,6 @@ def click_suggestion(chip_clicks, current_n):
     triggered = ctx.triggered_id
     if triggered and isinstance(triggered, dict):
         idx = triggered["index"]
-        from app.layouts.query import SUGGESTIONS
         if 0 <= idx < len(SUGGESTIONS):
             return SUGGESTIONS[idx], (current_n or 0) + 1
 

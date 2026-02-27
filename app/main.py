@@ -39,6 +39,7 @@ dash_app = dash.Dash(
     ],
     meta_tags=[
         {"name": "viewport", "content": "width=device-width, initial-scale=1"},
+        {"charset": "utf-8"},
     ],
     title="inDigitall Analytics",
     update_title="Cargando...",
@@ -288,7 +289,11 @@ import app.callbacks.home_cb  # noqa: F401
 import app.callbacks.query_cb  # noqa: F401
 import app.callbacks.query_list_cb  # noqa: F401
 import app.callbacks.dashboard_list_cb  # noqa: F401
+import app.callbacks.dashboard_visionamos_cb  # noqa: F401
 import app.callbacks.dashboard_view_cb  # noqa: F401
+import app.callbacks.dashboard_contact_center_cb  # noqa: F401
+import app.callbacks.dashboard_bot_cb  # noqa: F401
+import app.callbacks.dashboard_toques_cb  # noqa: F401
 import app.callbacks.data_explorer_cb  # noqa: F401
 import app.callbacks.operations_cb  # noqa: F401
 

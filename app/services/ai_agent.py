@@ -25,11 +25,19 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
 
+# Try to import openai, allow fallback without it
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
 # --- SQL Guardrails ---
 
 ALLOWED_TABLES = frozenset({
     "messages", "contacts", "agents", "daily_stats",
     "toques_daily", "campaigns", "toques_heatmap", "toques_usuario",
+    "chat_conversations", "chat_channels", "chat_topics",
 })
 
 SQL_BLOCKLIST = re.compile(
@@ -48,14 +56,19 @@ class AIAgent:
     def __init__(self, data_service: DataService):
         self.data_service = data_service
         self.client = None
+        self.openai_client = None
         self.model = "claude-sonnet-4-5-20250929"
+        self.openai_model = "gpt-4o-mini"
 
         if ANTHROPIC_AVAILABLE and settings.has_ai_key:
             self.client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
+        if OPENAI_AVAILABLE and settings.has_openai_key:
+            self.openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+
     def is_available(self) -> bool:
-        """Check if AI agent is available (API key configured)."""
-        return self.client is not None
+        """Check if any AI provider is available."""
+        return self.client is not None or self.openai_client is not None
 
     # ------------------------------------------------------------------
     # System prompt
@@ -136,7 +149,18 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
         tenant_filter: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Process a natural language query using AI or demo mode fallback."""
+        try:
+            return self._process_query_inner(user_question, conversation_history, tenant_filter)
+        except Exception as e:
+            logger.error("Unexpected error in process_query: %s", e)
+            return self._demo_mode_query(user_question, tenant_filter)
 
+    def _process_query_inner(
+        self,
+        user_question: str,
+        conversation_history: List[Dict] = None,
+        tenant_filter: Optional[str] = None,
+    ) -> Dict[str, Any]:
         # Pre-check for "high messages" queries (deterministic, no LLM needed)
         question_lower = user_question.lower()
         high_msg_indicators = [
@@ -146,9 +170,17 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
         if any(ind in question_lower for ind in high_msg_indicators):
             return self._handle_high_messages(question_lower, tenant_filter)
 
-        # AI mode
-        if self.is_available():
-            return self._ai_query(user_question, conversation_history, tenant_filter)
+        # Anthropic Claude (primary)
+        if self.client is not None:
+            result = self._ai_query(user_question, conversation_history, tenant_filter)
+            if result is not None:
+                return result
+
+        # OpenAI GPT-4o-mini (fallback)
+        if self.openai_client is not None:
+            result = self._openai_query(user_question, conversation_history, tenant_filter)
+            if result is not None:
+                return result
 
         # Demo mode (keyword matching)
         return self._demo_mode_query(user_question, tenant_filter)
@@ -194,7 +226,7 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
                 if json_match:
                     response_json = json.loads(json_match.group())
                 else:
-                    return self._demo_mode_query(user_question, tenant_filter)
+                    return None
 
             resp_type = response_json.get("type", "conversation")
 
@@ -228,27 +260,90 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
                 explanation = response_json.get("explanation", "")
                 return self._execute_guarded_sql(raw_sql, explanation, tenant_filter)
 
-            # Fallback
-            return self._demo_mode_query(user_question, tenant_filter)
+            # Unrecognized type
+            return None
 
         except anthropic.APIError as e:
             logger.warning("Anthropic API error: %s", e)
-            return {
-                "type": "error",
-                "response": f"El servicio de IA no está disponible temporalmente. Error: {e.message}",
-                "data": None,
-                "chart_type": None,
-                "query_details": None,
-            }
+            return None
         except Exception as e:
-            logger.exception("AI query failed")
-            return {
-                "type": "error",
-                "response": f"Hubo un problema: {str(e)}. Intenta reformular tu pregunta.",
-                "data": None,
-                "chart_type": None,
-                "query_details": None,
-            }
+            logger.warning("AI query failed: %s", e)
+            return None
+
+    # ------------------------------------------------------------------
+    # OpenAI fallback (GPT-4o-mini)
+    # ------------------------------------------------------------------
+
+    def _openai_query(
+        self,
+        user_question: str,
+        conversation_history: List[Dict] = None,
+        tenant_filter: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Process query via OpenAI GPT-4o-mini as fallback."""
+        try:
+            messages = [{"role": "system", "content": self._get_system_prompt()}]
+            if conversation_history:
+                for msg in conversation_history[-4:]:
+                    if msg.get("role") in ("user", "assistant"):
+                        messages.append({
+                            "role": msg["role"],
+                            "content": msg.get("content", ""),
+                        })
+            messages.append({"role": "user", "content": user_question})
+
+            response = self.openai_client.chat.completions.create(
+                model=self.openai_model,
+                messages=messages,
+                max_tokens=1024,
+                temperature=0.3,
+            )
+
+            response_text = response.choices[0].message.content
+
+            try:
+                response_json = json.loads(response_text)
+            except json.JSONDecodeError:
+                json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+                if json_match:
+                    response_json = json.loads(json_match.group())
+                else:
+                    return None
+
+            resp_type = response_json.get("type", "conversation")
+
+            if resp_type == "conversation":
+                return {
+                    "type": "conversation",
+                    "response": response_json.get("response", ""),
+                    "data": None,
+                    "chart_type": None,
+                    "query_details": None,
+                }
+
+            if resp_type == "analytics":
+                function_name = response_json.get("function", "summary")
+                explanation = response_json.get("explanation", "")
+                result = self._execute_function(function_name, tenant_filter)
+                row_count = len(result["data"]) if result["data"] is not None and not result["data"].empty else 0
+                return {
+                    "type": "analytics",
+                    "response": explanation,
+                    "data": result["data"],
+                    "chart_type": result["chart_type"],
+                    "query_details": {"function": function_name, "rows_returned": row_count},
+                }
+
+            if resp_type == "sql":
+                raw_sql = response_json.get("query", "")
+                explanation = response_json.get("explanation", "")
+                return self._execute_guarded_sql(raw_sql, explanation, tenant_filter)
+
+            return None
+
+        except Exception as e:
+            logger.warning("OpenAI query failed: %s", e)
+            return None
 
     # ------------------------------------------------------------------
     # Guarded SQL execution (Task 4.2)
@@ -499,27 +594,47 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
                 "data": None, "chart_type": None, "query_details": None,
             }
 
-        # Keyword → function mapping (order matters)
+        # Keyword → (function, friendly explanation)
+        # Order matters: more specific patterns first to avoid false matches
         patterns = [
-            (["fallback", "bot", "fallo", "entiende", "calidad"], "fallback_rate"),
-            (["canal", "direccion", "inbound", "distribucion"], "messages_by_direction"),
-            (["hora", "horario", "pico", "trafico"], "messages_by_hour"),
-            (["tendencia", "tiempo", "historico", "evolucion"], "messages_over_time"),
-            (["top", "contacto", "activo", "frecuente", "usuario"], "top_contacts"),
-            (["intent", "intencion", "tema", "motivo"], "intent_distribution"),
-            (["agente", "operador", "rendimiento", "equipo", "asesor"], "agent_performance"),
-            (["semana", "lunes", "martes", "viernes", "sabado"], "messages_by_day_of_week"),
-            (["cooperativa", "entidad", "comparar", "organizacion"], "entity_comparison"),
-            (["resumen", "total", "cuantos", "estadistica", "general", "summary"], "summary"),
+            (["fallback", "fallo", "entiende", "calidad bot"], "fallback_rate",
+             "Aqui tienes la tasa de fallback del bot. Un valor menor a 15% es saludable."),
+            (["intent", "intencion", "tema", "motivo"], "intent_distribution",
+             "Distribucion de intenciones detectadas por el bot. Revela que necesitan los usuarios."),
+            (["canal", "direccion", "inbound", "tipo de mensaje"], "messages_by_direction",
+             "Distribucion de mensajes por tipo: Inbound (usuario), Bot, Agente humano y Sistema."),
+            (["hora", "horario", "pico", "trafico"], "messages_by_hour",
+             "Volumen de mensajes por hora del dia. Los picos revelan los horarios de mayor demanda."),
+            (["tendencia", "tiempo", "historico", "evolucion", "crecimiento"], "messages_over_time",
+             "Tendencia diaria de mensajes. Permite identificar patrones de crecimiento o caida."),
+            (["top", "contacto", "activo", "frecuente", "mas mensaje", "mayor mensaje",
+              "mas activo", "mayor volumen"], "top_contacts",
+             "Los 10 contactos mas activos por volumen de mensajes."),
+            (["agente", "operador", "rendimiento", "equipo", "asesor"], "agent_performance",
+             "Rendimiento de agentes humanos: mensajes atendidos y conversaciones manejadas."),
+            (["semana", "lunes", "martes", "viernes", "sabado", "dia de la semana",
+              "dia semana", "dia con mas", "dia mas"], "messages_by_day_of_week",
+             "Actividad por dia de la semana. Util para planificar turnos y capacidad."),
+            (["cooperativa", "entidad", "comparar", "organizacion"], "entity_comparison",
+             "Comparacion de volumen entre entidades/cooperativas."),
+            (["distribucion"], "messages_by_direction",
+             "Distribucion de mensajes por tipo: Inbound (usuario), Bot, Agente humano y Sistema."),
+            (["bot", "automatizacion", "chatbot", "robot"], "fallback_rate",
+             "Aqui tienes la tasa de fallback del bot. Un valor menor a 15% es saludable."),
+            (["mensaje", "volumen", "cantidad"], "messages_over_time",
+             "Tendencia diaria de mensajes. Permite identificar patrones y volumen."),
+            (["resumen", "total", "cuantos", "estadistica", "general", "summary",
+              "dashboard", "kpi", "metricas"], "summary",
+             "Resumen ejecutivo con las metricas principales de la operacion."),
         ]
 
-        for keywords, func_name in patterns:
+        for keywords, func_name, explanation in patterns:
             if any(kw in q for kw in keywords):
                 result = self._execute_function(func_name, tenant_filter)
                 row_count = len(result["data"]) if result["data"] is not None and not result["data"].empty else 0
                 return {
                     "type": "analytics",
-                    "response": result.get("explanation", f"Resultados de {func_name}:"),
+                    "response": explanation,
                     "data": result["data"],
                     "chart_type": result["chart_type"],
                     "query_details": {"function": func_name, "rows_returned": row_count},

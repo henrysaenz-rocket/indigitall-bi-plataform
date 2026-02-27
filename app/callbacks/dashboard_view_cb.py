@@ -15,6 +15,11 @@ from app.config import settings
 
 CHART_COLORS = ["#1E88E5", "#76C043", "#A0A3BD", "#42A5F5", "#1565C0", "#FFC107", "#9C27B0", "#FF5722"]
 
+# Static dashboard routes handled by dedicated pages — skip DB lookup for these
+STATIC_DASHBOARD_ROUTES = {
+    "visionamos", "contact-center", "bot-performance", "control-toques", "nuevo",
+}
+
 
 def _render_widget(widget):
     """Render a single dashboard widget card from its config."""
@@ -98,15 +103,15 @@ def _render_widget(widget):
     State("tenant-context", "data"),
 )
 def load_dashboard(pathname, tenant):
-    if not pathname or not pathname.startswith("/tableros/"):
+    if not pathname or not pathname.startswith("/tableros/saved/"):
         raise PreventUpdate
 
-    # Extract dashboard_id from path
+    # Extract dashboard_id from /tableros/saved/<id>
     parts = pathname.strip("/").split("/")
-    if len(parts) < 2 or parts[1] in ("nuevo", ""):
+    if len(parts) < 3 or parts[2] == "":
         raise PreventUpdate
 
-    dashboard_id = parts[1]
+    dashboard_id = parts[2]
 
     svc = StorageService(tenant_id=tenant or settings.DEFAULT_TENANT)
     result = svc.get_dashboard(dashboard_id)

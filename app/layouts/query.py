@@ -37,8 +37,20 @@ layout = dbc.Container([
                     className="mb-3",
                 ),
 
-                # Chat messages container
-                html.Div(id="chat-messages", className="chat-messages-container"),
+                # Chat messages container (with welcome message)
+                html.Div([
+                    html.Div([
+                        html.Div([
+                            html.I(className="bi bi-robot me-2"),
+                            dcc.Markdown(
+                                "Hola! Soy tu asistente de analitica. Preguntame sobre "
+                                "tus datos de WhatsApp: mensajes, agentes, contactos, "
+                                "tendencias y mas. Selecciona una sugerencia o escribe tu pregunta.",
+                                className="d-inline",
+                            ),
+                        ], className="chat-message assistant-msg"),
+                    ], className="mb-3"),
+                ], id="chat-messages", className="chat-messages-container"),
 
                 # Chat input
                 dbc.InputGroup([
@@ -73,14 +85,31 @@ layout = dbc.Container([
                     ]),
                 ], className="d-flex justify-content-between align-items-center mb-3"),
 
-                # Results placeholder
-                html.Div([
-                    html.Div([
-                        html.I(className="bi bi-chat-square-text display-4 text-muted"),
-                        html.P("Los resultados de tu consulta apareceran aqui.",
-                               className="text-muted mt-3"),
-                    ], className="text-center py-5"),
-                ], id="results-container", className="results-panel"),
+                # Tabs: Resultado + Fuente de Datos
+                dbc.Tabs([
+                    dbc.Tab(
+                        html.Div([
+                            html.Div([
+                                html.I(className="bi bi-chat-square-text display-4 text-muted"),
+                                html.P("Los resultados de tu consulta apareceran aqui.",
+                                       className="text-muted mt-3"),
+                            ], className="text-center py-5"),
+                        ], id="results-container", className="results-panel"),
+                        label="Resultado",
+                        tab_id="tab-resultado",
+                    ),
+                    dbc.Tab(
+                        html.Div([
+                            html.Div([
+                                html.I(className="bi bi-database display-4 text-muted"),
+                                html.P("Ejecuta una consulta para ver la fuente de datos.",
+                                       className="text-muted mt-3"),
+                            ], className="text-center py-5"),
+                        ], id="source-data-container", className="results-panel"),
+                        label="Fuente de Datos",
+                        tab_id="tab-fuente",
+                    ),
+                ], id="results-tabs", active_tab="tab-resultado", className="mb-3"),
 
             ], className="results-wrapper"),
         ], width=7, className="results-column"),

@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Lineage — inDigitall BI Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --raw: #B71C1C;
+  --raw-bg: #FFEBEE;
+  --staging: #F9A825;
+  --staging-bg: #FFFDE7;
+  --mart: #2E7D32;
+  --mart-bg: #E8F5E9;
+  --public: #1565C0;
+  --public-bg: #E3F2FD;
+  --app: #6A1B9A;
+  --app-bg: #F3E5F5;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #F5F7FA;
+  color: #1A1A2E;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+.sidebar {
+  width: 420px;
+  background: white;
+  border-left: 1px solid #E4E4E7;
+  overflow-y: auto;
+  padding: 24px;
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  z-index: 100;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.08);
+}
+.sidebar.open { transform: translateX(0); }
+.sidebar-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #6E7191;
+}
+.sidebar h2 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.sidebar .badge-layer {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 16px;
+}
+.sidebar h3 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6E7191;
+  margin: 16px 0 8px;
+}
+.col-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.col-table th {
+  background: #F5F7FA;
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: #6E7191;
+  border-bottom: 1px solid #E4E4E7;
+}
+.col-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #F0F0F0;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+}
+.col-table tr:nth-child(odd) td { background: #FAFBFC; }
+.data-preview {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+.data-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.data-preview th {
+  background: #F5F7FA;
+  padding: 5px 8px;
+  font-weight: 600;
+  color: #6E7191;
+  border: 1px solid #E4E4E7;
+  white-space: nowrap;
+}
+.data-preview td {
+  padding: 4px 8px;
+  border: 1px solid #E4E4E7;
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.main {
+  flex: 1;
+  overflow: auto;
+  padding: 32px;
+  transition: margin-right 0.3s;
+}
+.main.shifted { margin-right: 420px; }
+.header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.header h1 { font-size: 28px; font-weight: 700; }
+.header .subtitle { color: #6E7191; font-size: 14px; }
+.search-bar {
+  display: flex;
+  align-items: center;
+  background: white;
+  border: 1px solid #E4E4E7;
+  border-radius: 8px;
+  padding: 8px 14px;
+  margin-bottom: 24px;
+  max-width: 400px;
+}
+.search-bar input {
+  border: none;
+  outline: none;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  width: 100%;
+  margin-left: 8px;
+}
+.pipeline {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  min-height: 600px;
+}
+.layer {
+  flex: 1;
+  min-width: 220px;
+}
+.layer-header {
+  text-align: center;
+  padding: 10px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.layer-header.raw { background: var(--raw-bg); color: var(--raw); }
+.layer-header.staging { background: var(--staging-bg); color: var(--staging); }
+.layer-header.mart { background: var(--mart-bg); color: var(--mart); }
+.layer-header.public { background: var(--public-bg); color: var(--public); }
+.layer-header.app { background: var(--app-bg); color: var(--app); }
+.card {
+  background: white;
+  border: 1px solid #E4E4E7;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  transform: translateY(-2px);
+}
+.card.active {
+  border-color: #1E88E5;
+  box-shadow: 0 0 0 2px rgba(30,136,229,0.2);
+}
+.card .icon { font-size: 18px; margin-right: 8px; }
+.card .name { font-weight: 600; font-size: 13px; }
+.card .meta { font-size: 11px; color: #6E7191; margin-top: 4px; }
+.card .cols-count {
+  display: inline-block;
+  background: #F5F7FA;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #6E7191;
+  margin-top: 6px;
+}
+.arrow-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-width: 40px;
+  padding-top: 50px;
+}
+.arrow {
+  font-size: 28px;
+  color: #A0A3BD;
+  line-height: 1;
+}
+.arrow-label {
+  font-size: 9px;
+  color: #A0A3BD;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  writing-mode: vertical-lr;
+  margin-top: 8px;
+}
+.lineage-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.lineage-tag {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #E3F2FD;
+  color: #1565C0;
+  font-weight: 500;
+}
+.hidden { display: none !important; }
+.legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+</style>
+</head>
+<body>
+
+<div class="main" id="main">
+  <div class="header">
+    <div>
+      <h1>Data Lineage Map</h1>
+      <div class="subtitle">inDigitall BI Platform — Flujo completo de datos desde API hasta Dashboard</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--raw)"></div> Raw (API/JSONB)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--public)"></div> Public (Normalizado)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--staging)"></div> Staging (dbt Views)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--mart)"></div> Marts (dbt Tables)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--app)"></div> App (Dashboards)</div>
+  </div>
+
+  <div class="search-bar">
+    <span>&#128269;</span>
+    <input type="text" id="search" placeholder="Buscar tabla por nombre..." oninput="filterCards()">
+  </div>
+
+  <div class="pipeline" id="pipeline"></div>
+</div>
+
+<div class="sidebar" id="sidebar">
+  <button class="sidebar-close" onclick="closeSidebar()">&times;</button>
+  <div id="sidebar-content"></div>
+</div>
+
+<script>
+const TABLES = [
+  // === RAW ===
+  {
+    id: "raw_contacts_api", layer: "raw", icon: "\uD83D\uDDC4\uFE0F",
+    name: "raw.raw_contacts_api",
+    description: "Contactos crudos de la API /v1/contacts",
+    columns: [
+      {col: "id", type: "SERIAL", desc: "PK"},
+      {col: "endpoint", type: "TEXT", desc: "URL del endpoint"},
+      {col: "source_data", type: "JSONB", desc: "Respuesta completa de la API"},
+      {col: "loaded_at", type: "TIMESTAMPTZ", desc: "Fecha de carga"},
+    ],
+    sources: [], targets: ["contacts"],
+    sample: [
+      {endpoint: "/v1/contacts", source_data: '{"contactId":"c123","profileName":"Juan Perez"}', loaded_at: "2025-12-01"},
+    ]
+  },
+  {
+    id: "raw_chat_stats", layer: "raw", icon: "\uD83D\uDDC4\uFE0F",
+    name: "raw.raw_chat_stats",
+    description: "Historial de chat, conversaciones, canales y topics",
+    columns: [
+      {col: "id", type: "SERIAL", desc: "PK"},
+      {col: "endpoint", type: "TEXT", desc: "URL del endpoint"},
+      {col: "source_data", type: "JSONB", desc: "Respuesta completa"},
+      {col: "loaded_at", type: "TIMESTAMPTZ", desc: "Fecha de carga"},
+    ],
+    sources: [], targets: ["messages", "chat_conversations", "chat_channels", "chat_topics"],
+    sample: [
+      {endpoint: "/v1/chat/history/csv", source_data: '{"messageId":"m456","sendType":"input"}', loaded_at: "2025-12-15"},
+      {endpoint: "/v1/chat/agent/conversations", source_data: '{"agentSessionId":"s789"}', loaded_at: "2025-12-15"},
+    ]
+  },
+  {
+    id: "raw_push_stats", layer: "raw", icon: "\uD83D\uDDC4\uFE0F",
+    name: "raw.raw_push_stats",
+    description: "Estadisticas push, heatmap y fechas diarias",
+    columns: [
+      {col: "id", type: "SERIAL", desc: "PK"},
+      {col: "endpoint", type: "TEXT", desc: "URL del endpoint"},
+      {col: "source_data", type: "JSONB", desc: "Respuesta completa"},
+      {col: "loaded_at", type: "TIMESTAMPTZ", desc: "Fecha de carga"},
+    ],
+    sources: [], targets: ["toques_daily", "toques_heatmap", "daily_stats"],
+    sample: [
+      {endpoint: "/dateStats", source_data: '{"platformGroup":"android","numDevicesSent":1200}', loaded_at: "2025-11-20"},
+    ]
+  },
+  {
+    id: "raw_campaigns_api", layer: "raw", icon: "\uD83D\uDDC4\uFE0F",
+    name: "raw.raw_campaigns_api",
+    description: "Campanas de push/comunicacion",
+    columns: [
+      {col: "id", type: "SERIAL", desc: "PK"},
+      {col: "endpoint", type: "TEXT", desc: "URL del endpoint"},
+      {col: "source_data", type: "JSONB", desc: "Respuesta completa"},
+      {col: "loaded_at", type: "TIMESTAMPTZ", desc: "Fecha de carga"},
+    ],
+    sources: [], targets: ["campaigns"],
+    sample: [
+      {endpoint: "/v1/campaigns", source_data: '{"id":"camp01","name":"Promo Enero"}', loaded_at: "2025-12-01"},
+    ]
+  },
+
+  // === PUBLIC (transform_bridge) ===
+  {
+    id: "messages", layer: "public", icon: "\uD83D\uDCE8",
+    name: "public.messages",
+    description: "122K+ mensajes de WhatsApp — tabla principal",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: "ID del proyecto"},
+      {col: "message_id", type: "VARCHAR(100)", desc: "ID unico del mensaje"},
+      {col: "timestamp", type: "TIMESTAMPTZ", desc: "Fecha/hora del mensaje"},
+      {col: "date", type: "DATE", desc: "Fecha extraida"},
+      {col: "hour", type: "SMALLINT", desc: "Hora (0-23)"},
+      {col: "day_of_week", type: "VARCHAR(10)", desc: "Dia de la semana"},
+      {col: "direction", type: "VARCHAR(20)", desc: "Inbound/Bot/Agent/System"},
+      {col: "send_type", type: "VARCHAR(30)", desc: "input/operator/dialogflow"},
+      {col: "content_type", type: "VARCHAR(30)", desc: "text/image/document"},
+      {col: "contact_name", type: "VARCHAR(255)", desc: "Nombre del contacto"},
+      {col: "contact_id", type: "VARCHAR(100)", desc: "FK a contacts"},
+      {col: "conversation_id", type: "VARCHAR(100)", desc: "ID de conversacion"},
+      {col: "agent_id", type: "VARCHAR(100)", desc: "FK a agents"},
+      {col: "intent", type: "VARCHAR(200)", desc: "Intencion detectada"},
+      {col: "is_fallback", type: "BOOLEAN", desc: "Bot no entendio"},
+      {col: "is_bot", type: "BOOLEAN", desc: "Mensaje de bot"},
+      {col: "is_human", type: "BOOLEAN", desc: "Mensaje de agente"},
+      {col: "wait_time_seconds", type: "INTEGER", desc: "Tiempo de espera"},
+      {col: "handle_time_seconds", type: "INTEGER", desc: "Tiempo de gestion"},
+    ],
+    sources: ["raw_chat_stats"], targets: ["stg_messages"],
+    sample: [
+      {message_id: "msg_001", date: "2025-12-15", direction: "Inbound", contact_name: "Juan Perez", intent: "consulta_saldo", is_fallback: false},
+      {message_id: "msg_002", date: "2025-12-15", direction: "Bot", contact_name: "Juan Perez", intent: "consulta_saldo", is_fallback: false},
+      {message_id: "msg_003", date: "2025-12-16", direction: "Agent", contact_name: "Maria Lopez", intent: null, is_fallback: false},
+    ]
+  },
+  {
+    id: "contacts", layer: "public", icon: "\uD83D\uDC65",
+    name: "public.contacts",
+    description: "1,267 contactos unicos",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: "ID del proyecto"},
+      {col: "contact_id", type: "VARCHAR(100)", desc: "ID unico"},
+      {col: "contact_name", type: "VARCHAR(255)", desc: "Nombre"},
+      {col: "total_messages", type: "INTEGER", desc: "Total mensajes"},
+      {col: "first_contact", type: "DATE", desc: "Primer contacto"},
+      {col: "last_contact", type: "DATE", desc: "Ultimo contacto"},
+      {col: "total_conversations", type: "INTEGER", desc: "Conversaciones"},
+    ],
+    sources: ["raw_contacts_api"], targets: ["stg_contacts"],
+    sample: [
+      {contact_id: "c_100", contact_name: "Carlos Ruiz", total_messages: 45, first_contact: "2025-09-01", last_contact: "2025-12-20"},
+      {contact_id: "c_101", contact_name: "Ana Maria Torres", total_messages: 12, first_contact: "2025-10-15", last_contact: "2025-12-18"},
+    ]
+  },
+  {
+    id: "chat_conversations", layer: "public", icon: "\uD83D\uDCAC",
+    name: "public.chat_conversations",
+    description: "38K+ sesiones de agente",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: "ID del proyecto"},
+      {col: "session_id", type: "VARCHAR(100)", desc: "ID sesion agente"},
+      {col: "contact_id", type: "VARCHAR(100)", desc: "FK contacto"},
+      {col: "agent_id", type: "VARCHAR(100)", desc: "FK agente"},
+      {col: "agent_email", type: "VARCHAR(255)", desc: "Email del agente"},
+      {col: "channel", type: "VARCHAR(30)", desc: "Canal (whatsapp)"},
+      {col: "queued_at", type: "TIMESTAMPTZ", desc: "Entrada en cola"},
+      {col: "assigned_at", type: "TIMESTAMPTZ", desc: "Asignacion"},
+      {col: "closed_at", type: "TIMESTAMPTZ", desc: "Cierre"},
+      {col: "wait_time_seconds", type: "INTEGER", desc: "Tiempo espera"},
+      {col: "handle_time_seconds", type: "INTEGER", desc: "Tiempo gestion"},
+    ],
+    sources: ["raw_chat_stats"], targets: ["stg_chat_conversations"],
+    sample: [
+      {session_id: "s_001", agent_id: "ag_05", channel: "whatsapp", wait_time_seconds: 120, handle_time_seconds: 480},
+      {session_id: "s_002", agent_id: "ag_12", channel: "whatsapp", wait_time_seconds: 45, handle_time_seconds: 300},
+    ]
+  },
+  {
+    id: "agents", layer: "public", icon: "\uD83D\uDC64",
+    name: "public.agents",
+    description: "171 agentes humanos",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: "ID del proyecto"},
+      {col: "agent_id", type: "VARCHAR(100)", desc: "ID agente"},
+      {col: "total_messages", type: "INTEGER", desc: "Mensajes"},
+      {col: "conversations_handled", type: "INTEGER", desc: "Conversaciones"},
+      {col: "avg_handle_time_seconds", type: "INTEGER", desc: "Prom gestion"},
+    ],
+    sources: ["raw_chat_stats"], targets: ["stg_agents"],
+    sample: [
+      {agent_id: "ag_05", total_messages: 3200, conversations_handled: 890, avg_handle_time_seconds: 420},
+    ]
+  },
+  {
+    id: "daily_stats", layer: "public", icon: "\uD83D\uDCC5",
+    name: "public.daily_stats",
+    description: "85 filas de metricas diarias",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: "ID del proyecto"},
+      {col: "date", type: "DATE", desc: "Fecha"},
+      {col: "total_messages", type: "INTEGER", desc: "Mensajes del dia"},
+      {col: "unique_contacts", type: "INTEGER", desc: "Contactos unicos"},
+      {col: "conversations", type: "INTEGER", desc: "Conversaciones"},
+      {col: "fallback_count", type: "INTEGER", desc: "Fallbacks"},
+    ],
+    sources: ["raw_push_stats"], targets: ["fct_daily_stats"],
+    sample: [
+      {date: "2025-12-15", total_messages: 1440, unique_contacts: 320, conversations: 280, fallback_count: 42},
+    ]
+  },
+  {
+    id: "toques_daily", layer: "public", icon: "\uD83D\uDD14",
+    name: "public.toques_daily",
+    description: "282 filas de push por canal/dia",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: "ID del proyecto"},
+      {col: "date", type: "DATE", desc: "Fecha"},
+      {col: "canal", type: "VARCHAR(30)", desc: "ios/android/web"},
+      {col: "proyecto_cuenta", type: "VARCHAR(100)", desc: "Proyecto"},
+      {col: "enviados", type: "INTEGER", desc: "Push enviados"},
+      {col: "entregados", type: "INTEGER", desc: "Push entregados"},
+      {col: "clicks", type: "INTEGER", desc: "Clicks"},
+      {col: "ctr", type: "NUMERIC(6,2)", desc: "Click-through rate"},
+      {col: "tasa_entrega", type: "NUMERIC(6,2)", desc: "Tasa de entrega"},
+    ],
+    sources: ["raw_push_stats"], targets: ["stg_toques_daily"],
+    sample: [
+      {date: "2025-12-01", canal: "android", enviados: 0, entregados: 0, clicks: 0, ctr: 0},
+    ]
+  },
+  {
+    id: "campaigns", layer: "public", icon: "\uD83D\uDCE2",
+    name: "public.campaigns",
+    description: "0 filas (tabla vacia)",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: "ID del proyecto"},
+      {col: "campana_id", type: "VARCHAR(100)", desc: "ID campana"},
+      {col: "campana_nombre", type: "VARCHAR(255)", desc: "Nombre"},
+      {col: "canal", type: "VARCHAR(30)", desc: "Canal"},
+      {col: "total_enviados", type: "INTEGER", desc: "Enviados"},
+      {col: "total_entregados", type: "INTEGER", desc: "Entregados"},
+      {col: "ctr", type: "NUMERIC(6,2)", desc: "CTR"},
+    ],
+    sources: ["raw_campaigns_api"], targets: ["stg_campaigns"],
+    sample: [{note: "Tabla vacia — sin datos de campanas"}]
+  },
+
+  // === STAGING (dbt views) ===
+  {
+    id: "stg_messages", layer: "staging", icon: "\uD83D\uDD04",
+    name: "stg_messages",
+    description: "Vista: normaliza direction, deduplica",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "message_id", type: "VARCHAR", desc: ""},
+      {col: "date", type: "DATE", desc: ""},
+      {col: "direction", type: "VARCHAR", desc: "Normalizado: Inbound/Bot/Agent/Outbound/System"},
+      {col: "is_fallback", type: "BOOLEAN", desc: "COALESCE(false)"},
+      {col: "is_bot", type: "BOOLEAN", desc: "COALESCE(false)"},
+      {col: "is_human", type: "BOOLEAN", desc: "COALESCE(false)"},
+      {col: "contact_id", type: "VARCHAR", desc: ""},
+      {col: "agent_id", type: "VARCHAR", desc: ""},
+      {col: "intent", type: "VARCHAR", desc: ""},
+      {col: "wait_time_seconds", type: "INTEGER", desc: ""},
+      {col: "handle_time_seconds", type: "INTEGER", desc: ""},
+    ],
+    sources: ["messages"], targets: ["fct_messages_daily", "fct_agent_performance", "dim_contacts"],
+    sample: []
+  },
+  {
+    id: "stg_contacts", layer: "staging", icon: "\uD83D\uDD04",
+    name: "stg_contacts",
+    description: "Vista: deduplica contactos, coalesce a 0",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "contact_id", type: "VARCHAR", desc: ""},
+      {col: "contact_name", type: "VARCHAR", desc: ""},
+      {col: "total_messages", type: "INTEGER", desc: "COALESCE 0"},
+      {col: "total_conversations", type: "INTEGER", desc: "COALESCE 0"},
+    ],
+    sources: ["contacts"], targets: ["dim_contacts"],
+    sample: []
+  },
+  {
+    id: "stg_agents", layer: "staging", icon: "\uD83D\uDD04",
+    name: "stg_agents",
+    description: "Vista: deduplica agentes",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "agent_id", type: "VARCHAR", desc: ""},
+      {col: "total_messages", type: "INTEGER", desc: ""},
+      {col: "conversations_handled", type: "INTEGER", desc: ""},
+    ],
+    sources: ["agents"], targets: ["fct_agent_performance"],
+    sample: []
+  },
+  {
+    id: "stg_chat_conversations", layer: "staging", icon: "\uD83D\uDD04",
+    name: "stg_chat_conversations",
+    description: "Vista: limpia tiempos negativos, calcula duracion total",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "session_id", type: "VARCHAR", desc: ""},
+      {col: "agent_id", type: "VARCHAR", desc: ""},
+      {col: "wait_time_seconds", type: "INTEGER", desc: "NULL si negativo"},
+      {col: "handle_time_seconds", type: "INTEGER", desc: "NULL si negativo"},
+      {col: "total_duration_seconds", type: "INTEGER", desc: "COMPUTED: closed_at - queued_at"},
+    ],
+    sources: ["chat_conversations"], targets: ["fct_agent_performance"],
+    sample: []
+  },
+  {
+    id: "stg_toques_daily", layer: "staging", icon: "\uD83D\uDD04",
+    name: "stg_toques_daily",
+    description: "Vista: recalcula rates desde counts",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "date", type: "DATE", desc: ""},
+      {col: "canal", type: "VARCHAR", desc: ""},
+      {col: "enviados", type: "INTEGER", desc: ""},
+      {col: "entregados", type: "INTEGER", desc: ""},
+      {col: "ctr", type: "NUMERIC", desc: "Recalculado"},
+      {col: "tasa_entrega", type: "NUMERIC", desc: "Recalculado"},
+    ],
+    sources: ["toques_daily"], targets: ["fct_toques_metrics", "fct_daily_stats", "dim_campaigns"],
+    sample: []
+  },
+  {
+    id: "stg_campaigns", layer: "staging", icon: "\uD83D\uDD04",
+    name: "stg_campaigns",
+    description: "Vista: deduplica campanas, recalcula rates",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "campana_id", type: "VARCHAR", desc: ""},
+      {col: "campana_nombre", type: "VARCHAR", desc: ""},
+      {col: "canal", type: "VARCHAR", desc: ""},
+      {col: "total_enviados", type: "INTEGER", desc: "COALESCE 0"},
+    ],
+    sources: ["campaigns"], targets: ["dim_campaigns"],
+    sample: []
+  },
+
+  // === MARTS (dbt tables) ===
+  {
+    id: "dim_contacts", layer: "mart", icon: "\uD83D\uDCCA",
+    name: "marts.dim_contacts",
+    description: "Dimension: contactos enriquecidos con metricas de mensajes",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "contact_id", type: "VARCHAR", desc: ""},
+      {col: "contact_name", type: "VARCHAR", desc: ""},
+      {col: "total_messages", type: "INTEGER", desc: "Desde messages"},
+      {col: "total_conversations", type: "INTEGER", desc: "Distinct conv_id"},
+      {col: "first_contact", type: "DATE", desc: "MIN(date)"},
+      {col: "last_contact", type: "DATE", desc: "MAX(date)"},
+      {col: "fallback_messages", type: "INTEGER", desc: "COUNT(is_fallback)"},
+      {col: "active_days", type: "INTEGER", desc: "COUNT(DISTINCT date)"},
+    ],
+    sources: ["stg_messages", "stg_contacts"], targets: [],
+    sample: [
+      {contact_id: "c_100", contact_name: "Carlos Ruiz", total_messages: 45, fallback_messages: 2, active_days: 18},
+    ]
+  },
+  {
+    id: "dim_campaigns", layer: "mart", icon: "\uD83D\uDCCA",
+    name: "marts.dim_campaigns",
+    description: "Dimension: campanas + datos diarios agregados",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "campana_id", type: "VARCHAR", desc: ""},
+      {col: "campana_nombre", type: "VARCHAR", desc: ""},
+      {col: "canal", type: "VARCHAR", desc: ""},
+      {col: "total_enviados", type: "INTEGER", desc: "SUM"},
+      {col: "active_days", type: "INTEGER", desc: "COUNT(DISTINCT date)"},
+    ],
+    sources: ["stg_campaigns", "stg_toques_daily"], targets: [],
+    sample: [{note: "Datos vacios — sin campanas activas"}]
+  },
+  {
+    id: "fct_messages_daily", layer: "mart", icon: "\uD83D\uDCCA",
+    name: "marts.fct_messages_daily",
+    description: "Fact: KPIs diarios de mensajes",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "date", type: "DATE", desc: ""},
+      {col: "total_messages", type: "INTEGER", desc: "COUNT(*)"},
+      {col: "unique_contacts", type: "INTEGER", desc: "DISTINCT contact_id"},
+      {col: "conversations", type: "INTEGER", desc: "DISTINCT conv_id"},
+      {col: "inbound_count", type: "INTEGER", desc: "direction=Inbound"},
+      {col: "bot_count", type: "INTEGER", desc: "direction=Bot"},
+      {col: "agent_count", type: "INTEGER", desc: "direction=Agent"},
+      {col: "fallback_count", type: "INTEGER", desc: "is_fallback=true"},
+      {col: "fallback_rate", type: "NUMERIC", desc: "fallback/total*100"},
+      {col: "avg_wait_seconds", type: "NUMERIC", desc: "AVG(wait)"},
+    ],
+    sources: ["stg_messages"], targets: ["fct_daily_stats"],
+    sample: [
+      {date: "2025-12-15", total_messages: 1440, unique_contacts: 320, fallback_rate: 2.9, avg_wait_seconds: 24.5},
+    ]
+  },
+  {
+    id: "fct_daily_stats", layer: "mart", icon: "\uD83D\uDCCA",
+    name: "marts.fct_daily_stats",
+    description: "Fact: metricas diarias combinadas (msgs + push)",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "date", type: "DATE", desc: ""},
+      {col: "total_messages", type: "INTEGER", desc: ""},
+      {col: "unique_contacts", type: "INTEGER", desc: ""},
+      {col: "fallback_rate", type: "NUMERIC", desc: ""},
+      {col: "total_enviados", type: "INTEGER", desc: "Push enviados"},
+      {col: "avg_ctr", type: "NUMERIC", desc: "Promedio CTR"},
+    ],
+    sources: ["fct_messages_daily", "stg_toques_daily"], targets: [],
+    sample: [
+      {date: "2025-12-15", total_messages: 1440, total_enviados: 0, fallback_rate: 2.9},
+    ]
+  },
+  {
+    id: "fct_agent_performance", layer: "mart", icon: "\uD83D\uDCCA",
+    name: "marts.fct_agent_performance",
+    description: "Fact: rendimiento de agentes con tiempos",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "agent_id", type: "VARCHAR", desc: ""},
+      {col: "total_messages", type: "INTEGER", desc: "COUNT(*)"},
+      {col: "conversations_handled", type: "INTEGER", desc: "DISTINCT conv_id"},
+      {col: "unique_contacts", type: "INTEGER", desc: "DISTINCT contact_id"},
+      {col: "active_days", type: "INTEGER", desc: "DISTINCT dates"},
+      {col: "avg_handle_seconds", type: "NUMERIC", desc: "AVG(handle)"},
+      {col: "avg_wait_seconds", type: "NUMERIC", desc: "AVG(wait)"},
+    ],
+    sources: ["stg_messages", "stg_chat_conversations"], targets: [],
+    sample: [
+      {agent_id: "ag_05", total_messages: 3200, conversations_handled: 890, active_days: 45, avg_handle_seconds: 420},
+    ]
+  },
+  {
+    id: "fct_toques_metrics", layer: "mart", icon: "\uD83D\uDCCA",
+    name: "marts.fct_toques_metrics",
+    description: "Fact: metricas mensuales de push por canal",
+    columns: [
+      {col: "tenant_id", type: "TEXT", desc: ""},
+      {col: "canal", type: "VARCHAR", desc: ""},
+      {col: "month", type: "DATE", desc: "DATE_TRUNC('month')"},
+      {col: "total_enviados", type: "INTEGER", desc: "SUM"},
+      {col: "total_clicks", type: "INTEGER", desc: "SUM"},
+      {col: "ctr", type: "NUMERIC", desc: "Recalculado"},
+    ],
+    sources: ["stg_toques_daily"], targets: [],
+    sample: [{note: "Datos con 0 enviados en todos los canales"}]
+  },
+];
+
+const LAYERS = [
+  {id: "raw", label: "RAW", icon: "\uD83D\uDDC4\uFE0F", cls: "raw"},
+  {id: "public", label: "PUBLIC", icon: "\uD83D\uDCE6", cls: "public"},
+  {id: "staging", label: "STAGING (dbt)", icon: "\uD83D\uDD04", cls: "staging"},
+  {id: "mart", label: "MARTS (dbt)", icon: "\uD83D\uDCCA", cls: "mart"},
+];
+
+function renderPipeline() {
+  const pipeline = document.getElementById("pipeline");
+  pipeline.innerHTML = "";
+
+  LAYERS.forEach((layer, idx) => {
+    if (idx > 0) {
+      const arrowCol = document.createElement("div");
+      arrowCol.className = "arrow-col";
+      arrowCol.innerHTML = '<div class="arrow">\u27A1</div><div class="arrow-label">Transform</div>';
+      pipeline.appendChild(arrowCol);
+    }
+
+    const col = document.createElement("div");
+    col.className = "layer";
+    col.innerHTML = `<div class="layer-header ${layer.cls}">${layer.icon} ${layer.label}</div>`;
+
+    TABLES.filter(t => t.layer === layer.id).forEach(table => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.id = `card-${table.id}`;
+      card.onclick = () => openSidebar(table.id);
+
+      const targets = table.targets.length > 0
+        ? `<div class="lineage-tags">${table.targets.map(t => `<span class="lineage-tag">\u27A1 ${t}</span>`).join("")}</div>`
+        : "";
+
+      card.innerHTML = `
+        <div><span class="icon">${table.icon}</span><span class="name">${table.name}</span></div>
+        <div class="meta">${table.description}</div>
+        <span class="cols-count">${table.columns.length} columnas</span>
+        ${targets}
+      `;
+      col.appendChild(card);
+    });
+
+    pipeline.appendChild(col);
+  });
+}
+
+function openSidebar(tableId) {
+  const table = TABLES.find(t => t.id === tableId);
+  if (!table) return;
+
+  document.querySelectorAll(".card.active").forEach(c => c.classList.remove("active"));
+  const card = document.getElementById(`card-${tableId}`);
+  if (card) card.classList.add("active");
+
+  const layerColors = {raw: "var(--raw)", public: "var(--public)", staging: "var(--staging)", mart: "var(--mart)"};
+  const layerBgs = {raw: "var(--raw-bg)", public: "var(--public-bg)", staging: "var(--staging-bg)", mart: "var(--mart-bg)"};
+
+  let colsHtml = `<table class="col-table"><thead><tr><th>Columna</th><th>Tipo</th><th>Descripcion</th></tr></thead><tbody>`;
+  table.columns.forEach(c => {
+    colsHtml += `<tr><td>${c.col}</td><td>${c.type}</td><td style="font-family:Inter;font-size:11px;color:#6E7191">${c.desc}</td></tr>`;
+  });
+  colsHtml += `</tbody></table>`;
+
+  let sampleHtml = "";
+  if (table.sample.length > 0 && !table.sample[0].note) {
+    const keys = Object.keys(table.sample[0]);
+    sampleHtml = `<div class="data-preview"><table><thead><tr>${keys.map(k => `<th>${k}</th>`).join("")}</tr></thead><tbody>`;
+    table.sample.forEach(row => {
+      sampleHtml += `<tr>${keys.map(k => `<td>${row[k] === null ? '<i>null</i>' : row[k]}</td>`).join("")}</tr>`;
+    });
+    sampleHtml += `</tbody></table></div>`;
+  } else if (table.sample.length > 0 && table.sample[0].note) {
+    sampleHtml = `<p style="color:#A0A3BD;font-size:12px;font-style:italic">${table.sample[0].note}</p>`;
+  } else {
+    sampleHtml = `<p style="color:#A0A3BD;font-size:12px;font-style:italic">Vista dbt — datos derivados de la capa anterior</p>`;
+  }
+
+  let lineageHtml = "";
+  if (table.sources.length > 0) {
+    lineageHtml += `<div style="margin-bottom:8px"><strong style="font-size:11px;color:#6E7191">FUENTES:</strong> ${table.sources.map(s => `<span class="lineage-tag" style="cursor:pointer" onclick="openSidebar('${s}')">\u2B05 ${s}</span>`).join(" ")}</div>`;
+  }
+  if (table.targets.length > 0) {
+    lineageHtml += `<div><strong style="font-size:11px;color:#6E7191">DESTINOS:</strong> ${table.targets.map(t => `<span class="lineage-tag" style="cursor:pointer" onclick="openSidebar('${t}')">\u27A1 ${t}</span>`).join(" ")}</div>`;
+  }
+
+  document.getElementById("sidebar-content").innerHTML = `
+    <h2>${table.icon} ${table.name}</h2>
+    <span class="badge-layer" style="background:${layerBgs[table.layer]};color:${layerColors[table.layer]}">${table.layer.toUpperCase()}</span>
+    <p style="color:#6E7191;font-size:13px;margin-bottom:12px">${table.description}</p>
+    ${lineageHtml ? `<div style="margin-bottom:16px">${lineageHtml}</div>` : ""}
+    <h3>Columnas (${table.columns.length})</h3>
+    ${colsHtml}
+    <h3>Ejemplo de Datos</h3>
+    ${sampleHtml}
+  `;
+
+  document.getElementById("sidebar").classList.add("open");
+  document.getElementById("main").classList.add("shifted");
+}
+
+function closeSidebar() {
+  document.getElementById("sidebar").classList.remove("open");
+  document.getElementById("main").classList.remove("shifted");
+  document.querySelectorAll(".card.active").forEach(c => c.classList.remove("active"));
+}
+
+function filterCards() {
+  const query = document.getElementById("search").value.toLowerCase();
+  TABLES.forEach(t => {
+    const card = document.getElementById(`card-${t.id}`);
+    if (card) {
+      const match = t.name.toLowerCase().includes(query) || t.id.toLowerCase().includes(query) || t.description.toLowerCase().includes(query);
+      card.classList.toggle("hidden", !match);
+    }
+  });
+}
+
+renderPipeline();
+</script>
+</body>
+</html>

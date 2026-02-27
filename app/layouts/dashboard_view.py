@@ -6,9 +6,9 @@ import dash_bootstrap_components as dbc
 
 dash.register_page(
     __name__,
-    path_template="/tableros/<dashboard_id>",
+    path_template="/tableros/saved/<dashboard_id>",
     name="Tablero",
-    order=3,
+    order=39,
 )
 
 

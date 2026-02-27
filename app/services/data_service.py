@@ -485,9 +485,355 @@ class DataService:
                 df[col] = 0
         return df
 
+    # --- Dashboard: additional filtered queries ---
+
+    def get_hourly_distribution_filtered(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+    ) -> pd.DataFrame:
+        """Message count by hour within a date range."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+        stmt = (
+            select(t.c.hour, func.count().label("count"))
+            .where(w)
+            .group_by(t.c.hour)
+            .order_by(t.c.hour)
+        )
+        return self._exec(stmt)
+
+    def get_day_of_week_filtered(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+    ) -> pd.DataFrame:
+        """Message count by day of week within a date range."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+        day_order = case(
+            (t.c.day_of_week == "Monday", 1),
+            (t.c.day_of_week == "Tuesday", 2),
+            (t.c.day_of_week == "Wednesday", 3),
+            (t.c.day_of_week == "Thursday", 4),
+            (t.c.day_of_week == "Friday", 5),
+            (t.c.day_of_week == "Saturday", 6),
+            (t.c.day_of_week == "Sunday", 7),
+            else_=8,
+        )
+        stmt = (
+            select(t.c.day_of_week, func.count().label("count"))
+            .where(w)
+            .group_by(t.c.day_of_week)
+            .order_by(day_order)
+        )
+        df = self._exec(stmt)
+        if not df.empty:
+            day_map = {
+                "Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miercoles",
+                "Thursday": "Jueves", "Friday": "Viernes",
+                "Saturday": "Sabado", "Sunday": "Domingo",
+            }
+            df["day_of_week"] = df["day_of_week"].map(
+                lambda d: day_map.get(d.strip(), d.strip())
+            )
+        return df
+
+    def get_bot_vs_human_filtered(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+    ) -> pd.DataFrame:
+        """Message breakdown by actor type (Bot / Agente / Usuario / Sistema)."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+        category = case(
+            (t.c.is_bot == True, "Bot"),  # noqa: E712
+            (t.c.is_human == True, "Agente"),  # noqa: E712
+            (t.c.direction == "Inbound", "Usuario"),
+            (t.c.direction == "System", "Sistema"),
+            else_="Otro",
+        )
+        stmt = (
+            select(category.label("category"), func.count().label("count"))
+            .where(w)
+            .group_by(category)
+            .order_by(func.count().desc())
+        )
+        return self._exec(stmt)
+
+    def get_top_intents_filtered(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+        limit: int = 10,
+    ) -> pd.DataFrame:
+        """Top N intents by message count within a date range."""
+        t = Message.__table__
+        w = and_(
+            self._tenant_filter(t, tenant_filter),
+            t.c.intent.isnot(None),
+            t.c.intent != "",
+        )
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+        stmt = (
+            select(t.c.intent, func.count().label("count"))
+            .where(w)
+            .group_by(t.c.intent)
+            .order_by(func.count().desc())
+            .limit(limit)
+        )
+        return self._exec(stmt)
+
     def get_contacts_dataframe(self, tenant_filter: Optional[str] = None) -> pd.DataFrame:
         t = Contact.__table__
         stmt = select(t).where(self._tenant_filter(t, tenant_filter))
+        return self._exec(stmt)
+
+    # --- Bot / Automation dashboard queries ---
+
+    def get_fallback_trend_filtered(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+    ) -> pd.DataFrame:
+        """Daily fallback rate trend."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+        stmt = (
+            select(
+                t.c.date,
+                func.count().label("total"),
+                func.sum(case((t.c.is_fallback == True, 1), else_=0)).label("fallback_count"),  # noqa: E712
+            )
+            .where(w)
+            .group_by(t.c.date)
+            .order_by(t.c.date)
+        )
+        df = self._exec(stmt)
+        if not df.empty:
+            df["fallback_rate"] = (df["fallback_count"] / df["total"] * 100).round(2)
+        return df
+
+    def get_bot_resolution_summary(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+    ) -> pd.DataFrame:
+        """Bot vs human message breakdown for the period."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+        category = case(
+            (t.c.is_bot == True, "Bot"),  # noqa: E712
+            (t.c.is_human == True, "Agente"),  # noqa: E712
+            else_="Otro",
+        )
+        stmt = (
+            select(category.label("category"), func.count().label("count"))
+            .where(w)
+            .group_by(category)
+            .order_by(func.count().desc())
+        )
+        return self._exec(stmt)
+
+    def get_content_type_breakdown(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+    ) -> pd.DataFrame:
+        """Message count by content type."""
+        t = Message.__table__
+        w = and_(
+            self._tenant_filter(t, tenant_filter),
+            t.c.content_type.isnot(None),
+            t.c.content_type != "",
+        )
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+        stmt = (
+            select(t.c.content_type, func.count().label("count"))
+            .where(w)
+            .group_by(t.c.content_type)
+            .order_by(func.count().desc())
+            .limit(10)
+        )
+        return self._exec(stmt)
+
+    # --- Control de Toques dashboard queries ---
+
+    def get_toques_kpis(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+        threshold: int = 4,
+    ) -> Dict[str, Any]:
+        """KPIs: % over-touched, total contacts, avg msgs per contact per week."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+
+        week_expr = func.to_char(t.c.date, "IYYY-IW")
+        inner = (
+            select(
+                t.c.contact_id,
+                week_expr.label("week"),
+                func.count().label("msg_count"),
+            )
+            .where(w)
+            .group_by(t.c.contact_id, week_expr)
+            .subquery()
+        )
+
+        with engine.connect() as conn:
+            total_records = conn.execute(
+                select(func.count()).select_from(inner)
+            ).scalar() or 0
+            over_touched = conn.execute(
+                select(func.count()).select_from(inner).where(inner.c.msg_count > threshold)
+            ).scalar() or 0
+            avg_msgs = conn.execute(
+                select(func.avg(inner.c.msg_count))
+            ).scalar() or 0
+
+        pct = round(over_touched / total_records * 100, 1) if total_records > 0 else 0
+        return {
+            "total_contact_weeks": total_records,
+            "over_touched": over_touched,
+            "pct_over_touched": pct,
+            "avg_msgs_per_contact_week": round(float(avg_msgs), 1),
+        }
+
+    def get_toques_distribution(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+    ) -> pd.DataFrame:
+        """Distribution of messages per contact per week (for histogram)."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+
+        week_expr = func.to_char(t.c.date, "IYYY-IW")
+        inner = (
+            select(
+                t.c.contact_id,
+                week_expr.label("week"),
+                func.count().label("msg_count"),
+            )
+            .where(w)
+            .group_by(t.c.contact_id, week_expr)
+            .subquery()
+        )
+
+        bucket = case(
+            (inner.c.msg_count <= 1, "1"),
+            (inner.c.msg_count <= 2, "2"),
+            (inner.c.msg_count <= 3, "3"),
+            (inner.c.msg_count <= 4, "4"),
+            (inner.c.msg_count <= 7, "5-7"),
+            (inner.c.msg_count <= 10, "8-10"),
+            else_="10+",
+        )
+        stmt = (
+            select(bucket.label("bucket"), func.count().label("count"))
+            .group_by(bucket)
+        )
+        df = self._exec(stmt)
+        if not df.empty:
+            order = ["1", "2", "3", "4", "5-7", "8-10", "10+"]
+            df["bucket"] = pd.Categorical(df["bucket"], categories=order, ordered=True)
+            df = df.sort_values("bucket").reset_index(drop=True)
+        return df
+
+    def get_toques_weekly_trend(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+        threshold: int = 4,
+    ) -> pd.DataFrame:
+        """Weekly trend of over-touched percentage."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+
+        week_expr = func.to_char(t.c.date, "IYYY-IW")
+        inner = (
+            select(
+                t.c.contact_id,
+                week_expr.label("week"),
+                func.count().label("msg_count"),
+            )
+            .where(w)
+            .group_by(t.c.contact_id, week_expr)
+            .subquery()
+        )
+
+        stmt = (
+            select(
+                inner.c.week,
+                func.count().label("total_contacts"),
+                func.sum(case((inner.c.msg_count > threshold, 1), else_=0)).label("over_touched"),
+            )
+            .group_by(inner.c.week)
+            .order_by(inner.c.week)
+        )
+        df = self._exec(stmt)
+        if not df.empty:
+            df["pct_over_touched"] = (df["over_touched"] / df["total_contacts"] * 100).round(1)
+        return df
+
+    def get_over_touched_contacts(
+        self,
+        tenant_filter: Optional[str] = None,
+        start_date: Optional[date_type] = None,
+        end_date: Optional[date_type] = None,
+        threshold: int = 4,
+        limit: int = 100,
+    ) -> pd.DataFrame:
+        """List of over-touched contacts for table and CSV export."""
+        t = Message.__table__
+        w = self._tenant_filter(t, tenant_filter)
+        if start_date and end_date:
+            w = and_(w, t.c.date >= start_date, t.c.date <= end_date)
+
+        week_expr = func.to_char(t.c.date, "IYYY-IW")
+        stmt = (
+            select(
+                t.c.contact_id,
+                t.c.contact_name,
+                week_expr.label("semana"),
+                func.count().label("mensajes"),
+            )
+            .where(w)
+            .group_by(t.c.contact_id, t.c.contact_name, week_expr)
+            .having(func.count() > threshold)
+            .order_by(week_expr.desc(), func.count().desc())
+            .limit(limit)
+        )
         return self._exec(stmt)
 
     def get_schema_description(self) -> str:
@@ -495,21 +841,54 @@ class DataService:
         return """
 === CONTEXTO DE NEGOCIO ===
 
-Esta plataforma analiza datos de WhatsApp Business para la Red Coopcentral, una red de cooperativas financieras en Colombia.
+Plataforma de analytics para Visionamos (Red Coopcentral), una red de cooperativas financieras en Colombia.
+Canal unico: WhatsApp Cloud API. Combina chatbot Dialogflow + agentes humanos + notificaciones del sistema.
 
-TABLA PRINCIPAL: messages
+=== TABLAS DISPONIBLES ===
+
+TABLA: messages (principal — 122K+ filas)
 Columnas: message_id, timestamp, date, hour, day_of_week, send_type, direction, content_type, status, contact_name, contact_id, tenant_id, conversation_id, agent_id, close_reason, intent, is_fallback, message_body, is_bot, is_human, wait_time_seconds, handle_time_seconds
+- direction: Inbound (usuario), Bot (dialogflow), Agent (humano), Outbound, System
+- send_type: input, operator, dialogflow, agent_notification, note
+- is_fallback: true/false — indica si el bot no entendio la intencion
+- is_bot/is_human: clasifican el origen del mensaje
 
-TIPOS DE MENSAJE (direction): Inbound, Bot, Agent, Outbound, System
-INDICADOR DE FALLBACK (is_fallback): true/false
+TABLA: contacts (1,200+ filas)
+Columnas: contact_id, contact_name, tenant_id, total_messages, first_contact, last_contact, total_conversations
 
-contacts: contact_id, contact_name, tenant_id, total_messages, first_contact, last_contact, total_conversations
-agents: agent_id, total_messages, conversations_handled, avg_handle_time_seconds
+TABLA: agents (170+ filas)
+Columnas: agent_id, tenant_id, total_messages, conversations_handled, avg_handle_time_seconds
 
-METRICAS CLAVE:
-1. Tasa de Fallback: COUNT(is_fallback=true) / COUNT(*) * 100 — Meta: < 15%
-2. Volumen de mensajes y tendencia diaria
-3. Distribucion por canal (Inbound vs Bot vs Agent)
+TABLA: daily_stats (85+ filas)
+Columnas: tenant_id, date, total_messages, unique_contacts, conversations, fallback_count
+
+TABLA: chat_conversations (38K+ filas — sesiones de agente)
+Columnas: session_id, conversation_session_id, contact_id, agent_id, agent_email, channel, queued_at, assigned_at, closed_at, initial_session_id, wait_time_seconds, handle_time_seconds, tenant_id
+
+TABLA: chat_channels (canales de comunicacion)
+Columnas: channel_id, channel_type, channel_name, phone_number, status, config, tenant_id
+
+TABLA: chat_topics (categorias de conversacion)
+Columnas: topic_id, topic_name, description, is_active, tenant_id
+
+TABLA: campaigns (campanas de push/comunicacion)
+Columnas: campana_id, campana_nombre, canal, proyecto_cuenta, tipo_campana, total_enviados, total_entregados, total_clicks, fecha_inicio, fecha_fin, ctr, tasa_entrega, tenant_id
+
+TABLA: toques_daily (metricas diarias por canal)
+Columnas: date, canal, proyecto_cuenta, enviados, entregados, clicks, usuarios_unicos, abiertos, rebotes, ctr, tasa_entrega, tenant_id
+
+TABLA: toques_heatmap (mapa de calor hora/dia)
+Columnas: canal, dia_semana, hora, enviados, clicks, abiertos, ctr, dia_orden, tenant_id
+
+TABLA: toques_usuario (toques por usuario)
+Columnas: telefono, canal, proyecto_cuenta, total_toques, total_clicks, primer_toque, ultimo_toque, dias_activos, tenant_id
+
+=== METRICAS CLAVE ===
+1. Tasa de Fallback: COUNT(is_fallback=true) / COUNT(*) * 100 — Meta: < 15% (actual ~3%)
+2. Volumen de mensajes y tendencia diaria — Promedio: 1,440 msgs/dia
+3. Distribucion por tipo: Bot vs Agente vs Usuario vs Sistema
 4. Tiempo de espera (wait_time_seconds) — Meta: < 60s
 5. Tiempo de atencion (handle_time_seconds) — Meta: < 300s
+6. Horarios pico: 13:00-22:00 (bi-modal: 15-16h y 19-21h)
+7. Dias activos: Lun-Vie (sabado minimo, domingo casi nulo)
 """
