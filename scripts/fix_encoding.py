@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 TABLES_COLUMNS = [
     ("messages", "contact_name"),
+    ("messages", "message_body"),
+    ("messages", "intent"),
     ("contacts", "contact_name"),
     ("chat_conversations", "agent_email"),
 ]
@@ -27,7 +29,8 @@ def fix_encoding():
     with engine.begin() as conn:
         for table, column in TABLES_COLUMNS:
             count_stmt = text(
-                f"SELECT COUNT(*) FROM {table} WHERE {column} ~ 'Ã'"  # noqa: S608
+                f"SELECT COUNT(*) FROM {table} "  # noqa: S608
+                f"WHERE {column} ~ 'Ã' OR {column} ~ 'â' OR {column} ~ 'ð'"
             )
             count = conn.execute(count_stmt).scalar()
             logger.info("%s.%s: %d rows with corrupted encoding", table, column, count)
@@ -38,7 +41,7 @@ def fix_encoding():
             update_stmt = text(
                 f"UPDATE {table} "  # noqa: S608
                 f"SET {column} = convert_from(convert_to({column}, 'LATIN1'), 'UTF8') "
-                f"WHERE {column} ~ 'Ã'"
+                f"WHERE {column} ~ 'Ã' OR {column} ~ 'â' OR {column} ~ 'ð'"
             )
             result = conn.execute(update_stmt)
             logger.info("  Fixed %d rows", result.rowcount)

@@ -156,6 +156,8 @@ class IndigitallAPIClient:
                 print(f"    [WARN] {endpoint} returned {resp.status_code}")
                 return None
 
+            # Force UTF-8 before JSON decoding to prevent double-encoding
+            resp.encoding = "utf-8"
             return resp.json()
 
         return None
@@ -211,6 +213,9 @@ class IndigitallAPIClient:
                 print(f"    [WARN] {endpoint} returned {resp.status_code}")
                 return None
 
+            # Force UTF-8 decoding — requests defaults to Latin-1 when
+            # the server omits charset, which double-encodes accented chars.
+            resp.encoding = "utf-8"
             return resp.text
 
         return None
@@ -280,6 +285,7 @@ class IndigitallAPIClient:
                 print(f"    [WARN] {endpoint} returned {resp.status_code}")
                 return None
 
+            resp.encoding = "utf-8"
             return resp.json()
 
         return None

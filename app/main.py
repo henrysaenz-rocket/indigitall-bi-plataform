@@ -47,6 +47,7 @@ dash_app = dash.Dash(
 
 server = dash_app.server
 server.secret_key = settings.FLASK_SECRET_KEY
+server.config["JSON_AS_ASCII"] = False  # Serve JSON with native UTF-8 chars
 
 # --- Auth middleware ---
 from app.middleware.auth import init_auth
