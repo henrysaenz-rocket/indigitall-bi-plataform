@@ -1,0 +1,31 @@
+/* Dashboard Unified — Tab pills styling */
+
+.ud-tabs .nav-tabs {
+    border-bottom: 2px solid var(--id-border);
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-bottom: 8px;
+}
+
+.ud-tabs .nav-tabs .nav-link {
+    border: 1px solid var(--id-border);
+    border-radius: var(--id-radius-pill);
+    color: var(--id-text-secondary);
+    font-family: var(--id-font);
+    font-size: var(--id-fs-sm);
+    font-weight: 500;
+    padding: 6px 18px;
+    transition: all 0.2s ease;
+}
+
+.ud-tabs .nav-tabs .nav-link:hover {
+    background-color: rgba(30, 136, 229, 0.08);
+    border-color: var(--id-primary-light);
+    color: var(--id-primary);
+}
+
+.ud-tabs .nav-tabs .nav-link.active {
+    background-color: var(--id-primary);
+    border-color: var(--id-primary);
+    color: #fff;
+}

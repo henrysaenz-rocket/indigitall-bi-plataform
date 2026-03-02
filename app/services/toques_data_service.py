@@ -21,7 +21,8 @@ class ToquesDataService:
         with engine.connect() as conn:
             return pd.read_sql(stmt, conn)
 
-    def _daily_filter(self, channels=None, project=None):
+    def _daily_filter(self, channels=None, project=None,
+                      start_date=None, end_date=None):
         """Build WHERE clauses for toques_daily."""
         t = ToquesDaily.__table__
         clauses = []
@@ -29,6 +30,10 @@ class ToquesDataService:
             clauses.append(t.c.canal.in_(channels))
         if project and project != "Todos":
             clauses.append(t.c.proyecto_cuenta == project)
+        if start_date:
+            clauses.append(t.c.date >= start_date)
+        if end_date:
+            clauses.append(t.c.date <= end_date)
         return and_(*clauses) if clauses else True
 
     def _campaign_filter(self, channels=None, project=None):
@@ -42,9 +47,10 @@ class ToquesDataService:
 
     # ==================== KPIs ====================
 
-    def get_kpis(self, channels=None, project=None) -> Dict[str, Any]:
+    def get_kpis(self, channels=None, project=None,
+                 start_date=None, end_date=None) -> Dict[str, Any]:
         t = ToquesDaily.__table__
-        w = self._daily_filter(channels, project)
+        w = self._daily_filter(channels, project, start_date, end_date)
         stmt = select(
             func.coalesce(func.sum(t.c.enviados), 0).label("total_enviados"),
             func.coalesce(func.sum(t.c.clicks), 0).label("total_clicks"),
@@ -77,21 +83,23 @@ class ToquesDataService:
 
     # ==================== Chart Data ====================
 
-    def get_sends_vs_chunks(self, channels=None, project=None) -> pd.DataFrame:
+    def get_sends_vs_chunks(self, channels=None, project=None,
+                            start_date=None, end_date=None) -> pd.DataFrame:
         t = ToquesDaily.__table__
         stmt = (
             select(t.c.date, func.sum(t.c.enviados).label("enviados"), func.sum(t.c.chunks).label("chunks"))
-            .where(self._daily_filter(channels, project))
+            .where(self._daily_filter(channels, project, start_date, end_date))
             .group_by(t.c.date)
             .order_by(t.c.date)
         )
         return self._exec(stmt)
 
-    def get_sends_clicks_ctr(self, channels=None, project=None) -> pd.DataFrame:
+    def get_sends_clicks_ctr(self, channels=None, project=None,
+                             start_date=None, end_date=None) -> pd.DataFrame:
         t = ToquesDaily.__table__
         stmt = (
             select(t.c.date, func.sum(t.c.enviados).label("enviados"), func.sum(t.c.clicks).label("clicks"))
-            .where(self._daily_filter(channels, project))
+            .where(self._daily_filter(channels, project, start_date, end_date))
             .group_by(t.c.date)
             .order_by(t.c.date)
         )
@@ -225,9 +233,11 @@ class ToquesDataService:
 
     # ==================== Email ====================
 
-    def get_email_kpis(self, project=None) -> Dict[str, Any]:
+    def get_email_kpis(self, project=None,
+                       start_date=None, end_date=None) -> Dict[str, Any]:
         t = ToquesDaily.__table__
-        w = and_(t.c.canal == "Email", self._daily_filter(project=project))
+        w = and_(t.c.canal == "Email", self._daily_filter(
+            project=project, start_date=start_date, end_date=end_date))
         stmt = select(
             func.coalesce(func.sum(t.c.enviados), 0).label("total_enviados"),
             func.coalesce(func.sum(t.c.entregados), 0).label("total_entregados"),
@@ -259,9 +269,11 @@ class ToquesDataService:
             "campanas_activas": self._get_active_campaigns_count(channels=["Email"], project=project),
         }
 
-    def get_email_engagement_trend(self, project=None) -> pd.DataFrame:
+    def get_email_engagement_trend(self, project=None,
+                                   start_date=None, end_date=None) -> pd.DataFrame:
         t = ToquesDaily.__table__
-        w = and_(t.c.canal == "Email", self._daily_filter(project=project))
+        w = and_(t.c.canal == "Email", self._daily_filter(
+            project=project, start_date=start_date, end_date=end_date))
         stmt = (
             select(t.c.date,
                    func.sum(t.c.enviados).label("enviados"),
@@ -278,9 +290,11 @@ class ToquesDataService:
             df["ctr"] = (df["clicks"] / df["abiertos"] * 100).round(2).fillna(0)
         return df
 
-    def get_email_error_breakdown(self, project=None) -> pd.DataFrame:
+    def get_email_error_breakdown(self, project=None,
+                                  start_date=None, end_date=None) -> pd.DataFrame:
         t = ToquesDaily.__table__
-        w = and_(t.c.canal == "Email", self._daily_filter(project=project))
+        w = and_(t.c.canal == "Email", self._daily_filter(
+            project=project, start_date=start_date, end_date=end_date))
         stmt = select(
             func.coalesce(func.sum(t.c.rebotes), 0).label("rebotes"),
             func.coalesce(func.sum(t.c.bloqueados), 0).label("bloqueados"),
@@ -311,7 +325,8 @@ class ToquesDataService:
         )
         return self._exec(stmt)
 
-    def get_email_campaigns_by_engagement(self, project=None, limit=10) -> pd.DataFrame:
+    def get_email_campaigns_by_engagement(self, project=None, limit=10,
+                                          start_date=None, end_date=None) -> pd.DataFrame:
         t = Campaign.__table__
         w = and_(t.c.canal == "Email", self._campaign_filter(project=project), t.c.total_enviados >= 100)
         stmt = (
@@ -324,9 +339,11 @@ class ToquesDataService:
 
     # ==================== In-App/Web ====================
 
-    def get_inapp_kpis(self, project=None) -> Dict[str, Any]:
+    def get_inapp_kpis(self, project=None,
+                       start_date=None, end_date=None) -> Dict[str, Any]:
         t = ToquesDaily.__table__
-        w = and_(t.c.canal == "In App/Web", self._daily_filter(project=project))
+        w = and_(t.c.canal == "In App/Web", self._daily_filter(
+            project=project, start_date=start_date, end_date=end_date))
         stmt = select(
             func.coalesce(func.sum(t.c.enviados), 0).label("total_impresiones"),
             func.coalesce(func.sum(t.c.clicks), 0).label("total_clicks"),
@@ -346,9 +363,11 @@ class ToquesDataService:
             "campanas_activas": self._get_active_campaigns_count(channels=["In App/Web"], project=project),
         }
 
-    def get_inapp_engagement_trend(self, project=None) -> pd.DataFrame:
+    def get_inapp_engagement_trend(self, project=None,
+                                   start_date=None, end_date=None) -> pd.DataFrame:
         t = ToquesDaily.__table__
-        w = and_(t.c.canal == "In App/Web", self._daily_filter(project=project))
+        w = and_(t.c.canal == "In App/Web", self._daily_filter(
+            project=project, start_date=start_date, end_date=end_date))
         stmt = (
             select(t.c.date,
                    func.sum(t.c.enviados).label("impresiones"),
@@ -364,9 +383,11 @@ class ToquesDataService:
             df["conversion_rate"] = (df["conversiones"] / df["clicks"] * 100).round(2).fillna(0)
         return df
 
-    def get_inapp_conversion_funnel(self, project=None) -> pd.DataFrame:
+    def get_inapp_conversion_funnel(self, project=None,
+                                    start_date=None, end_date=None) -> pd.DataFrame:
         t = ToquesDaily.__table__
-        w = and_(t.c.canal == "In App/Web", self._daily_filter(project=project))
+        w = and_(t.c.canal == "In App/Web", self._daily_filter(
+            project=project, start_date=start_date, end_date=end_date))
         stmt = select(
             func.coalesce(func.sum(t.c.enviados), 0).label("imp"),
             func.coalesce(func.sum(t.c.clicks), 0).label("cl"),

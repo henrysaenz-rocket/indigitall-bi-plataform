@@ -4,12 +4,12 @@ import dash
 from dash import html, dcc, dash_table
 import dash_bootstrap_components as dbc
 
-dash.register_page(
-    __name__,
-    path="/tableros/visionamos",
-    name="Dashboard Visionamos",
-    order=31,
-)
+# dash.register_page(
+#     __name__,
+#     path="/tableros/visionamos",
+#     name="Dashboard Visionamos",
+#     order=31,
+# )
 
 layout = dbc.Container([
     html.H2("Dashboard Visionamos", className="page-title"),
