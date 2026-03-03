@@ -10,6 +10,74 @@ import pandas as pd
 from typing import Optional, Dict, Any, List
 
 
+# Global label translation: technical column names → Spanish display labels
+LABEL_MAP = {
+    "event_count": "Cantidad de Eventos",
+    "full_date": "Fecha",
+    "hour": "Hora del Dia",
+    "hora": "Hora del Dia",
+    "day_of_week": "Dia de la Semana",
+    "dia_semana": "Dia de la Semana",
+    "day_name": "Dia de la Semana",
+    "campaign_name": "Campana",
+    "campana_nombre": "Campana",
+    "agent_email": "Agente",
+    "agent_id": "Agente",
+    "intent": "Intencion",
+    "close_reason": "Motivo de Cierre",
+    "reason": "Motivo de Cierre",
+    "tasa_entrega": "Tasa de Entrega (%)",
+    "ctr_pct": "CTR (%)",
+    "ctr": "CTR (%)",
+    "status": "Estado de Entrega",
+    "content_type": "Tipo de Contenido",
+    "direction": "Direccion",
+    "contact_name": "Contacto",
+    "message_count": "Cantidad de Mensajes",
+    "chunks": "Fragmentos SMS",
+    "total_chunks": "Fragmentos SMS",
+    "enviados": "Enviados",
+    "entregados": "Entregados",
+    "clicks": "Clics",
+    "clicked": "Clics",
+    "fallback": "Fallback",
+    "fallback_rate": "Tasa Fallback (%)",
+    "count": "Cantidad",
+    "total": "Total",
+    "delivered": "Entregados",
+    "rate": "Tasa (%)",
+    "date": "Fecha",
+    "period": "Periodo",
+    "bucket": "Rango",
+    "conversations": "Conversaciones",
+    "contacts": "Contactos",
+    "avg_frt": "FRT Prom (s)",
+    "avg_handle": "T. Gestion (s)",
+    "avg_frt_minutes": "FRT Prom (min)",
+    "avg_handle_minutes": "T. Gestion (min)",
+    "avg_dead_minutes": "Tiempo Muerto (min)",
+    "sending_type": "Tipo de Envio",
+    "network_name": "Red Operadora",
+    "delivery_rate": "Tasa de Entrega (%)",
+    "total_enviados": "Total Enviados",
+    "total_clicks": "Total Clics",
+    "value": "Valor",
+    "bot_only": "Solo Bot",
+    "human_only": "Solo Humano",
+    "mixed": "Mixta",
+    "category": "Categoria",
+    "tipo": "Tipo",
+    "error_description": "Error",
+    "phone": "Telefono",
+    "chunks_per_send": "Fragmentos/Envio",
+}
+
+
+def translate_label(name):
+    """Translate a technical column name to a Spanish display label."""
+    return LABEL_MAP.get(name, name)
+
+
 class ChartService:
     """Service for generating charts from data."""
 
@@ -39,6 +107,18 @@ class ChartService:
         '#9C27B0',  # Purple
         '#FF5722',  # Deep Orange
     ]
+
+    @staticmethod
+    def _translate_axes(fig):
+        """Apply global label translation to all axes titles and trace names."""
+        for axis_attr in ("xaxis", "yaxis", "xaxis2", "yaxis2"):
+            ax = fig.layout.get(axis_attr)
+            if ax and ax.title and ax.title.text:
+                ax.title.text = translate_label(ax.title.text)
+        for trace in fig.data:
+            if hasattr(trace, "name") and trace.name:
+                trace.name = translate_label(trace.name)
+        return fig
 
     def __init__(self):
         """Initialize the chart service."""
@@ -116,6 +196,7 @@ class ChartService:
             x=x_col,
             y=y_col,
             title=title,
+            labels={x_col: translate_label(x_col), y_col: translate_label(y_col)},
             color_discrete_sequence=[self.COLORS['primary']]
         )
         fig.update_layout(**self.default_layout)
@@ -124,7 +205,7 @@ class ChartService:
             marker_line_width=0,
             hovertemplate='<b>%{x}</b><br>%{y:,}<extra></extra>'
         )
-        return fig
+        return self._translate_axes(fig)
 
     def _create_horizontal_bar_chart(self, df: pd.DataFrame, title: str,
                                     x_col: str, y_col: str) -> go.Figure:
@@ -135,6 +216,7 @@ class ChartService:
             y=x_col,
             title=title,
             orientation='h',
+            labels={x_col: translate_label(x_col), y_col: translate_label(y_col)},
             color_discrete_sequence=[self.COLORS['primary']]
         )
         fig.update_layout(**self.default_layout)
@@ -143,7 +225,7 @@ class ChartService:
             marker_line_width=0,
             hovertemplate='<b>%{y}</b><br>%{x:,}<extra></extra>'
         )
-        return fig
+        return self._translate_axes(fig)
 
     def _create_line_chart(self, df: pd.DataFrame, title: str,
                           x_col: str, y_col: str) -> go.Figure:
@@ -153,6 +235,7 @@ class ChartService:
             x=x_col,
             y=y_col,
             title=title,
+            labels={x_col: translate_label(x_col), y_col: translate_label(y_col)},
             color_discrete_sequence=[self.COLORS['primary']]
         )
         fig.update_layout(**self.default_layout)
@@ -161,7 +244,7 @@ class ChartService:
             line_width=3,
             hovertemplate='<b>%{x}</b><br>%{y:,}<extra></extra>'
         )
-        return fig
+        return self._translate_axes(fig)
 
     def _create_area_chart(self, df: pd.DataFrame, title: str,
                           x_col: str, y_col: str) -> go.Figure:
@@ -171,6 +254,7 @@ class ChartService:
             x=x_col,
             y=y_col,
             title=title,
+            labels={x_col: translate_label(x_col), y_col: translate_label(y_col)},
             color_discrete_sequence=[self.COLORS['primary']]
         )
         fig.update_layout(**self.default_layout)
@@ -178,7 +262,7 @@ class ChartService:
             line_color=self.COLORS['primary'],
             fillcolor='rgba(30, 136, 229, 0.1)'
         )
-        return fig
+        return self._translate_axes(fig)
 
     def _create_pie_chart(self, df: pd.DataFrame, title: str,
                          x_col: str, y_col: str) -> go.Figure:
@@ -199,7 +283,7 @@ class ChartService:
             marker=dict(line=dict(color='#FFFFFF', width=2)),
             hovertemplate='<b>%{label}</b><br>%{value:,} (%{percent})<extra></extra>'
         )
-        return fig
+        return self._translate_axes(fig)
 
     def create_messages_by_direction_chart(self, df: pd.DataFrame) -> go.Figure:
         """Create a specialized chart for messages by direction."""
@@ -260,7 +344,7 @@ class ChartService:
             hovertemplate='<b>%{x}:00</b><br>%{y:,} mensajes<extra></extra>'
         )
         fig.update_xaxes(tickmode='linear', tick0=0, dtick=2)
-        return fig
+        return self._translate_axes(fig)
 
     def create_top_contacts_chart(self, df: pd.DataFrame) -> go.Figure:
         """Create a chart for top contacts."""
@@ -383,14 +467,17 @@ class ChartService:
             ))
 
         fig.update_layout(**self.default_layout, title=title)
-        fig.update_layout(legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ))
-        return fig
+        fig.update_layout(
+            xaxis_title=translate_label(x_col),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+        )
+        return self._translate_axes(fig)
 
     def create_combo_chart(self, df: pd.DataFrame, title: str,
                            x_col: str,
@@ -455,6 +542,7 @@ class ChartService:
             )
 
         fig.update_layout(**self.default_layout, title=title)
+        fig.update_xaxes(title_text=translate_label(x_col))
         fig.update_yaxes(title_text=y1_title, secondary_y=False)
         fig.update_yaxes(title_text=y2_title, secondary_y=True)
         fig.update_layout(legend=dict(
@@ -464,7 +552,7 @@ class ChartService:
             xanchor="center",
             x=0.5
         ))
-        return fig
+        return self._translate_axes(fig)
 
     def create_heatmap(self, df: pd.DataFrame, title: str,
                        x_col: str, y_col: str, z_col: str,
@@ -518,11 +606,11 @@ class ChartService:
         fig.update_layout(
             **self.default_layout,
             title=title,
-            xaxis_title=x_title or x_col,
-            yaxis_title=y_title or y_col
+            xaxis_title=x_title or translate_label(x_col),
+            yaxis_title=y_title or translate_label(y_col)
         )
         fig.update_xaxes(tickmode='linear', tick0=0, dtick=2)
-        return fig
+        return self._translate_axes(fig)
 
     def create_ranking_bar_chart(self, df: pd.DataFrame, title: str,
                                  name_col: str, value_col: str,
@@ -545,9 +633,11 @@ class ChartService:
 
         fig = go.Figure()
 
-        hover_template = f'<b>%{{y}}</b><br>{value_col}: %{{x:,.0f}}'
+        val_label = translate_label(value_col)
+        hover_template = f'<b>%{{y}}</b><br>{val_label}: %{{x:,.0f}}'
         if secondary_col:
-            hover_template += f'<br>{secondary_col}: %{{customdata:.2f}}%'
+            sec_label = translate_label(secondary_col)
+            hover_template += f'<br>{sec_label}: %{{customdata:.2f}}%'
         hover_template += '<extra></extra>'
 
         fig.add_trace(go.Bar(
@@ -559,9 +649,13 @@ class ChartService:
             hovertemplate=hover_template
         ))
 
-        fig.update_layout(**self.default_layout, title=title)
+        fig.update_layout(
+            **self.default_layout, title=title,
+            xaxis_title=val_label,
+            yaxis_title=translate_label(name_col),
+        )
         fig.update_traces(marker_line_width=0)
-        return fig
+        return self._translate_axes(fig)
 
     def create_bar_chart(self, df: pd.DataFrame, title: str,
                          x_col: str, y_col: str) -> go.Figure:
@@ -613,10 +707,13 @@ class ChartService:
                 hovertemplate=f"<b>{label}</b><br>%{{x}}<br>%{{y:,.0f}}<extra></extra>",
             ))
         fig.update_layout(**self.default_layout, title=title)
-        fig.update_layout(legend=dict(
-            orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5,
-        ))
-        return fig
+        fig.update_layout(
+            xaxis_title=translate_label(x_col),
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5,
+            ),
+        )
+        return self._translate_axes(fig)
 
     def create_gauge_chart(
         self, value: float, title: str,
@@ -676,5 +773,9 @@ class ChartService:
             annotation_font_size=12,
             annotation_font_color="#EF4444",
         )
-        fig.update_layout(**self.default_layout, title=title)
-        return fig
+        fig.update_layout(
+            **self.default_layout, title=title,
+            xaxis_title=translate_label(x_col),
+            yaxis_title=translate_label(y_col),
+        )
+        return self._translate_axes(fig)

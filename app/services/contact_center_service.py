@@ -325,39 +325,38 @@ class ContactCenterService:
         end_date: Optional[date_type] = None,
     ) -> Dict[str, int]:
         """Classify conversations: bot-only, human-only, or mixed."""
-        from app.models.schemas import Message
-        m = Message.__table__
-        w = self._tenant_filter(m, tenant_filter)
-        if start_date and end_date:
-            w = and_(w, m.c.date >= start_date, m.c.date <= end_date)
-
-        sub = (
-            select(
-                m.c.conversation_id,
-                func.bool_or(m.c.is_bot).label("has_bot"),
-                func.bool_or(m.c.is_human).label("has_human"),
+        sql = text("""
+            WITH conv_flags AS (
+                SELECT conversation_id,
+                       bool_or(is_bot) AS has_bot,
+                       bool_or(is_human) AS has_human
+                FROM messages
+                WHERE conversation_id IS NOT NULL
+                  AND (:tenant IS NULL OR tenant_id = :tenant)
+                  AND (:start IS NULL OR date >= :start)
+                  AND (:end IS NULL OR date <= :end)
+                GROUP BY conversation_id
             )
-            .where(and_(w, m.c.conversation_id.isnot(None)))
-            .group_by(m.c.conversation_id)
-            .subquery()
-        )
-
-        stmt = select(
-            func.count().label("total"),
-            func.sum(case((and_(sub.c.has_bot, ~sub.c.has_human), 1), else_=0)).label("bot_only"),
-            func.sum(case((and_(~sub.c.has_bot, sub.c.has_human), 1), else_=0)).label("human_only"),
-            func.sum(case((and_(sub.c.has_bot, sub.c.has_human), 1), else_=0)).label("mixed"),
-        ).select_from(sub)
-
-        with engine.connect() as conn:
-            row = conn.execute(stmt).first()
-
-        return {
-            "total": row.total or 0,
-            "bot_only": int(row.bot_only or 0),
-            "human_only": int(row.human_only or 0),
-            "mixed": int(row.mixed or 0),
-        }
+            SELECT COUNT(*) AS total,
+                   COALESCE(SUM(CASE WHEN has_bot AND NOT has_human THEN 1 ELSE 0 END), 0) AS bot_only,
+                   COALESCE(SUM(CASE WHEN NOT has_bot AND has_human THEN 1 ELSE 0 END), 0) AS human_only,
+                   COALESCE(SUM(CASE WHEN has_bot AND has_human THEN 1 ELSE 0 END), 0) AS mixed
+            FROM conv_flags
+        """)
+        try:
+            with engine.connect() as conn:
+                row = conn.execute(sql, {
+                    "tenant": tenant_filter, "start": start_date, "end": end_date,
+                }).first()
+            return {
+                "total": row.total or 0,
+                "bot_only": int(row.bot_only),
+                "human_only": int(row.human_only),
+                "mixed": int(row.mixed),
+            }
+        except Exception:
+            log.exception("Error in get_conversation_type_counts")
+            return {"total": 0, "bot_only": 0, "human_only": 0, "mixed": 0}
 
     def get_conversation_type_trend(
         self,
@@ -366,36 +365,34 @@ class ContactCenterService:
         end_date: Optional[date_type] = None,
     ) -> pd.DataFrame:
         """Daily conversation classification trend for stacked area chart."""
-        from app.models.schemas import Message
-        m = Message.__table__
-        w = self._tenant_filter(m, tenant_filter)
-        if start_date and end_date:
-            w = and_(w, m.c.date >= start_date, m.c.date <= end_date)
-
-        sub = (
-            select(
-                m.c.conversation_id,
-                func.min(m.c.date).label("date"),
-                func.bool_or(m.c.is_bot).label("has_bot"),
-                func.bool_or(m.c.is_human).label("has_human"),
+        sql = text("""
+            WITH conv_flags AS (
+                SELECT conversation_id,
+                       MIN(date) AS date,
+                       bool_or(is_bot) AS has_bot,
+                       bool_or(is_human) AS has_human
+                FROM messages
+                WHERE conversation_id IS NOT NULL
+                  AND (:tenant IS NULL OR tenant_id = :tenant)
+                  AND (:start IS NULL OR date >= :start)
+                  AND (:end IS NULL OR date <= :end)
+                GROUP BY conversation_id
             )
-            .where(and_(w, m.c.conversation_id.isnot(None)))
-            .group_by(m.c.conversation_id)
-            .subquery()
-        )
-
-        stmt = (
-            select(
-                sub.c.date,
-                func.sum(case((and_(sub.c.has_bot, ~sub.c.has_human), 1), else_=0)).label("bot_only"),
-                func.sum(case((and_(~sub.c.has_bot, sub.c.has_human), 1), else_=0)).label("human_only"),
-                func.sum(case((and_(sub.c.has_bot, sub.c.has_human), 1), else_=0)).label("mixed"),
-            )
-            .select_from(sub)
-            .group_by(sub.c.date)
-            .order_by(sub.c.date)
-        )
-        return self._exec(stmt)
+            SELECT date,
+                   SUM(CASE WHEN has_bot AND NOT has_human THEN 1 ELSE 0 END) AS bot_only,
+                   SUM(CASE WHEN NOT has_bot AND has_human THEN 1 ELSE 0 END) AS human_only,
+                   SUM(CASE WHEN has_bot AND has_human THEN 1 ELSE 0 END) AS mixed
+            FROM conv_flags
+            GROUP BY date ORDER BY date
+        """)
+        try:
+            with engine.connect() as conn:
+                return pd.read_sql(sql, conn, params={
+                    "tenant": tenant_filter, "start": start_date, "end": end_date,
+                })
+        except Exception:
+            log.exception("Error in get_conversation_type_trend")
+            return pd.DataFrame(columns=["date", "bot_only", "human_only", "mixed"])
 
     def get_dead_time_trend(
         self,
@@ -403,22 +400,32 @@ class ContactCenterService:
         start_date: Optional[date_type] = None,
         end_date: Optional[date_type] = None,
     ) -> pd.DataFrame:
-        """Daily average dead time from analytics dim_conversation."""
+        """Daily average dead time calculated from chat_conversations."""
+        sql = text("""
+            SELECT date(closed_at) AS date,
+                   AVG(
+                       GREATEST(
+                           EXTRACT(EPOCH FROM (closed_at - queued_at))
+                           - COALESCE(handle_time_seconds, 0),
+                           0
+                       )
+                   ) AS avg_dead_time_seconds
+            FROM chat_conversations
+            WHERE closed_at IS NOT NULL
+              AND queued_at IS NOT NULL
+              AND (:tenant IS NULL OR tenant_id = :tenant)
+              AND (:start IS NULL OR date(closed_at) >= :start)
+              AND (:end IS NULL OR date(closed_at) <= :end)
+            GROUP BY date(closed_at)
+            ORDER BY date(closed_at)
+        """)
         try:
-            sql = text("""
-                SELECT date(created_at) AS date,
-                       AVG(dead_time_seconds) AS avg_dead_time_seconds
-                FROM public_analytics.dim_conversation
-                WHERE dead_time_seconds IS NOT NULL
-                  AND (:start IS NULL OR date(created_at) >= :start)
-                  AND (:end IS NULL OR date(created_at) <= :end)
-                GROUP BY date(created_at)
-                ORDER BY date(created_at)
-            """)
             with engine.connect() as conn:
-                return pd.read_sql(sql, conn, params={"start": start_date, "end": end_date})
+                return pd.read_sql(sql, conn, params={
+                    "tenant": tenant_filter, "start": start_date, "end": end_date,
+                })
         except Exception:
-            log.warning("Analytics schema unavailable for dead_time_trend")
+            log.exception("Error in get_dead_time_trend")
             return pd.DataFrame(columns=["date", "avg_dead_time_seconds"])
 
     def get_managed_vs_unmanaged(

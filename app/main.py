@@ -203,10 +203,6 @@ def create_navbar():
                             href="/", active="exact",
                         )),
                         dbc.NavItem(dbc.NavLink(
-                            [html.I(className="bi bi-activity me-1"), "Operaciones"],
-                            href="/operaciones", active="exact",
-                        )),
-                        dbc.NavItem(dbc.NavLink(
                             [html.I(className="bi bi-search me-1"), "Consultas"],
                             href="/consultas", active="exact",
                         )),
@@ -299,7 +295,6 @@ import app.callbacks.ud_users_cb  # noqa: F401
 import app.callbacks.ud_email_cb  # noqa: F401
 import app.callbacks.ud_push_cb  # noqa: F401
 import app.callbacks.ud_inapp_cb  # noqa: F401
-import app.callbacks.ud_contact_center_cb  # noqa: F401
 import app.callbacks.ud_wallet_cb  # noqa: F401
 import app.callbacks.ud_gallery_cb  # noqa: F401
 import app.callbacks.dashboard_view_cb  # noqa: F401

@@ -184,6 +184,27 @@ def load_ud_wa_hum_coverage(tenant):
 
 
 @callback(
+    Output("ud-wa-hum-wait-chart", "figure"),
+    Input("ud-date-store", "data"),
+    Input("tenant-context", "data"),
+)
+def load_ud_wa_hum_wait(date_range, tenant):
+    """Wait time distribution bar chart (from Contact Center data)."""
+    try:
+        svc, charts = ContactCenterService(), ChartService()
+        start, end = parse_range(date_range)
+        df = svc.get_wait_time_distribution(
+            tenant_filter=tenant, start_date=start, end_date=end,
+        )
+        if df.empty:
+            return empty_figure("Distribucion de Espera")
+        return charts.create_bar_chart(df, "", "bucket", "count")
+    except Exception:
+        log.exception("Error loading WA humano wait distribution")
+        return empty_figure("Distribucion de Espera")
+
+
+@callback(
     Output("ud-wa-hum-heatmap", "figure"),
     Input("ud-date-store", "data"),
     Input("tenant-context", "data"),

@@ -40,17 +40,16 @@ def kpi_card(label, value, icon, color="primary", md=3):
 
 
 def kpi_card_with_delta(label, value, delta_pct, icon, color="primary", md=3):
-    """KPI card with a delta percentage indicator (positive=green, negative=red)."""
+    """KPI card with optional delta percentage indicator."""
     display_value = f"{value:,}" if isinstance(value, int) else str(value)
-    if delta_pct is None or delta_pct == 0:
-        delta_el = html.Span("—", style={"fontSize": "12px", "color": "#A0A3BD"})
-    else:
+    children = [html.Span(display_value, className="kpi-value")]
+    if delta_pct is not None and delta_pct != 0:
         arrow = "▲" if delta_pct > 0 else "▼"
         delta_color = "#76C043" if delta_pct > 0 else "#EF4444"
-        delta_el = html.Span(
-            f"{arrow} {abs(delta_pct):.1f}%",
+        children.append(html.Span(
+            f" {arrow} {abs(delta_pct):.1f}%",
             style={"fontSize": "12px", "fontWeight": "500", "color": delta_color},
-        )
+        ))
     return dbc.Col(
         dbc.Card([
             dbc.CardBody([
@@ -58,10 +57,7 @@ def kpi_card_with_delta(label, value, delta_pct, icon, color="primary", md=3):
                     html.I(className=f"bi {icon} me-2 text-{color}"),
                     html.Span(label, className="kpi-label"),
                 ]),
-                html.Div([
-                    html.Span(display_value, className="kpi-value me-2"),
-                    delta_el,
-                ], className="mt-1 d-flex align-items-baseline"),
+                html.Div(children, className="mt-1"),
             ]),
         ], className="kpi-card"),
         md=md, sm=6, xs=12,

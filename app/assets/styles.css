@@ -205,6 +205,17 @@ html, body {
   color: var(--id-text-primary);
 }
 
+.kpi-card {
+  min-height: 110px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.kpi-card .card-body {
+  padding: 16px 20px;
+}
+
 .kpi-card .kpi-label {
   font-size: var(--id-font-size-sm);
   font-weight: 500;

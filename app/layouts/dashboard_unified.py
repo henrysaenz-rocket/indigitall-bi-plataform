@@ -217,7 +217,6 @@ def _build_dashboard():
                 _build_email_tab(),
                 _build_push_tab(),
                 _build_inapp_tab(),
-                _build_cc_tab(),
                 _build_wallet_tab(),
             ],
         ),
@@ -357,10 +356,14 @@ def _build_wa_humano_subtab():
             _chart_card("Conversaciones por dia", "ud-wa-hum-conv-trend"),
             _chart_card("Razones de cierre", "ud-wa-hum-close-reasons"),
         ], className="mb-4 g-3"),
-        _section_label("DEAD TIME Y COBERTURA"),
+        _section_label("ESPERA Y DEAD TIME"),
         dbc.Row([
+            _chart_card("Distribucion de espera", "ud-wa-hum-wait-chart"),
             _chart_card("Tiempo muerto promedio", "ud-wa-hum-dead-time"),
-            _chart_card("Cobertura contactos", "ud-wa-hum-coverage-pie"),
+        ], className="mb-4 g-3"),
+        _section_label("COBERTURA"),
+        dbc.Row([
+            _chart_card("Cobertura contactos", "ud-wa-hum-coverage-pie", md=6),
         ], className="mb-4 g-3"),
         _section_label("DISTRIBUCION HORARIA"),
         dbc.Row([
@@ -393,27 +396,17 @@ def _build_sms_tab():
         dbc.Row(id="ud-sms-kpi-row", className="mb-4 g-3"),
         _section_label("TENDENCIA DE ENVIOS"),
         dbc.Row([
-            _chart_card("Enviados vs Chunks por dia", "ud-sms-sends-chunks-chart"),
-            _chart_card("Enviados vs Clicks vs CTR", "ud-sms-sends-clicks-chart"),
+            _chart_card("Enviados vs Chunks por dia", "ud-sms-sends-chunks-chart", md=12),
         ], className="mb-4 g-3"),
-        _section_label("PATRONES Y RANKING"),
+        _section_label("PATRONES DE ENVIO"),
         dbc.Row([
             _chart_card("Mapa de calor (hora / dia)", "ud-sms-heatmap-chart"),
-            _chart_card("Ranking campanas por volumen", "ud-sms-ranking-chart"),
-        ], className="mb-4 g-3"),
-        _section_label("RANKING POR CTR"),
-        dbc.Row([
-            _chart_card("Top campanas por CTR (min 100 envios)", "ud-sms-ranking-ctr-chart", md=12),
-        ], className="mb-4 g-3"),
-        _section_label("ENTREGA Y ESTADO"),
-        dbc.Row([
-            _chart_card("Tendencia de entrega diaria", "ud-sms-delivery-trend-chart"),
-            _chart_card("Estado de envio", "ud-sms-error-pie-chart"),
-        ], className="mb-4 g-3"),
-        _section_label("TIPO Y RED OPERADORA"),
-        dbc.Row([
             _chart_card("Tipo de envio", "ud-sms-type-chart"),
-            _chart_card("Distribucion por operadora", "ud-sms-network-chart"),
+        ], className="mb-4 g-3"),
+        _section_label("RANKING DE CAMPANAS"),
+        dbc.Row([
+            _chart_card("Top campanas por volumen", "ud-sms-ranking-chart"),
+            _chart_card("Top campanas por fragmentos/envio", "ud-sms-ranking-ctr-chart"),
         ], className="mb-4 g-3"),
         _section_label("DETALLE SMS"),
         dbc.Row([dbc.Col(
@@ -433,14 +426,27 @@ def _build_sms_tab():
         )], className="mb-4"),
         dcc.Download(id="ud-sms-download-csv"),
         _section_label("DRILL-DOWN TEMPORAL"),
-        dcc.Store(id="ud-sms-drill-store", data={"level": "day"}),
+        dcc.Store(id="ud-sms-drill-store", data={"level": "month", "month": None, "week": None}),
         dbc.Row([dbc.Col(
             dbc.Card([
-                dbc.CardHeader("Desglose por periodo", style={
+                dbc.CardHeader([
+                    html.Div(id="ud-sms-drill-breadcrumb",
+                             className="d-inline-flex align-items-center"),
+                    dbc.Button(
+                        [html.I(className="bi bi-arrow-counterclockwise me-1"), "Reset"],
+                        id="ud-sms-drill-reset", outline=True, color="secondary", size="sm",
+                        className="float-end",
+                        style={"display": "none"},
+                    ),
+                ], style={
                     "fontSize": "14px", "fontWeight": "600",
                     "backgroundColor": "transparent", "borderBottom": "1px solid #F0F0F5",
+                    "padding": "14px 20px",
                 }),
-                dbc.CardBody(html.Div(id="ud-sms-drill-container")),
+                dbc.CardBody(dcc.Loading(
+                    dcc.Graph(id="ud-sms-drill-graph", config={"displayModeBar": False},
+                              style={"height": "350px"}),
+                )),
             ], style={"borderRadius": "16px", "border": "1px solid #F0F0F5",
                        "boxShadow": "0 2px 12px rgba(0,0,0,0.04)"}),
             md=12,
@@ -536,60 +542,7 @@ def _build_inapp_tab():
     ])
 
 
-# ===================== Tab 8: Contact Center =====================
-
-def _build_cc_tab():
-    return dbc.Tab(label="Contact Center", tab_id="tab-cc", children=[
-        _section_label("RESUMEN CONTACT CENTER"),
-        dbc.Row(id="ud-cc-kpi-row", className="mb-4 g-3"),
-        _section_label("VOLUMEN DE CONVERSACIONES"),
-        dbc.Row([
-            _chart_card("Conversaciones por dia", "ud-cc-conv-trend-chart", md=8),
-            _chart_card("Distribucion de espera", "ud-cc-wait-chart", md=4),
-        ], className="mb-4 g-3"),
-        _section_label("TIEMPOS DE RESPUESTA"),
-        dbc.Row([
-            _chart_card("Tendencia FRT (primer respuesta)", "ud-cc-frt-trend-chart"),
-            _chart_card("Tendencia tiempo de gestion", "ud-cc-handle-trend-chart"),
-        ], className="mb-4 g-3"),
-        _section_label("RAZONES DE CIERRE"),
-        dbc.Row([
-            _chart_card("Razones de cierre", "ud-cc-close-reasons-chart"),
-            _chart_card("NPS", "ud-cc-nps-chart"),
-        ], className="mb-4 g-3"),
-        _section_label("AGENTES"),
-        dbc.Row([dbc.Col(
-            dbc.Card([
-                dbc.CardHeader("Rendimiento por agente", style={
-                    "fontSize": "14px", "fontWeight": "600",
-                    "backgroundColor": "transparent", "borderBottom": "1px solid #F0F0F5",
-                }),
-                dbc.CardBody(dcc.Loading(_data_table("ud-cc-agent-table"))),
-            ], style={"borderRadius": "16px", "border": "1px solid #F0F0F5",
-                       "boxShadow": "0 2px 12px rgba(0,0,0,0.04)"}),
-            md=12,
-        )], className="mb-4 g-3"),
-        _section_label("DISTRIBUCION HORARIA"),
-        dbc.Row([
-            _chart_card("Conversaciones por hora", "ud-cc-hourly-chart", md=12),
-        ], className="mb-4"),
-        _section_label("DRILL-DOWN"),
-        dcc.Store(id="ud-cc-drill-store", data={"level": "month"}),
-        dbc.Row([dbc.Col(
-            dbc.Card([
-                dbc.CardHeader("Desglose por periodo", style={
-                    "fontSize": "14px", "fontWeight": "600",
-                    "backgroundColor": "transparent", "borderBottom": "1px solid #F0F0F5",
-                }),
-                dbc.CardBody(html.Div(id="ud-cc-drill-container")),
-            ], style={"borderRadius": "16px", "border": "1px solid #F0F0F5",
-                       "boxShadow": "0 2px 12px rgba(0,0,0,0.04)"}),
-            md=12,
-        )], className="mb-4"),
-    ])
-
-
-# ===================== Tab 9: Wallet (disabled) =====================
+# ===================== Tab 8: Wallet (disabled) =====================
 
 def _build_wallet_tab():
     return dbc.Tab(label="Wallet", tab_id="tab-wallet", disabled=True, children=[
