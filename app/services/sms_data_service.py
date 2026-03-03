@@ -18,8 +18,11 @@ class SmsDataService:
     """Service for querying SMS sending data from sms_envios."""
 
     def _exec(self, stmt) -> pd.DataFrame:
-        with engine.connect() as conn:
-            return pd.read_sql(stmt, conn)
+        try:
+            with engine.connect() as conn:
+                return pd.read_sql(stmt, conn)
+        except Exception:
+            return pd.DataFrame()
 
     def _base_where(self, t, start_date, end_date):
         w = True
@@ -33,31 +36,29 @@ class SmsDataService:
         end_date: Optional[date_type] = None,
     ) -> Dict[str, Any]:
         """KPIs from actual sms_envios columns: enviados, chunks, campanas."""
-        t = SmsEnvio.__table__
-        w = self._base_where(t, start_date, end_date)
-
-        stmt = select(
-            func.count().label("total_enviados"),
-            func.coalesce(func.sum(t.c.total_chunks), 0).label("total_chunks"),
-            func.count(func.distinct(t.c.campaign_id)).label("campanas"),
-            func.count(func.distinct(t.c.sending_type)).label("tipos_envio"),
-        ).where(w)
-
-        with engine.connect() as conn:
-            row = conn.execute(stmt).first()
-
-        total = row.total_enviados or 0
-        return {
-            "total_enviados": total,
-            "total_chunks": row.total_chunks or 0,
-            "campanas": row.campanas or 0,
-            "tipos_envio": row.tipos_envio or 0,
-            "total_clicks": 0,
-            "ctr": 0,
-            "delivered": 0,
-            "delivery_rate": 0,
-            "unique_phones": 0,
+        empty = {
+            "total_enviados": 0, "total_chunks": 0,
+            "campanas": 0, "tipos_envio": 0,
         }
+        try:
+            t = SmsEnvio.__table__
+            w = self._base_where(t, start_date, end_date)
+            stmt = select(
+                func.count().label("total_enviados"),
+                func.coalesce(func.sum(t.c.total_chunks), 0).label("total_chunks"),
+                func.count(func.distinct(t.c.campaign_id)).label("campanas"),
+                func.count(func.distinct(t.c.sending_type)).label("tipos_envio"),
+            ).where(w)
+            with engine.connect() as conn:
+                row = conn.execute(stmt).first()
+            return {
+                "total_enviados": row.total_enviados or 0,
+                "total_chunks": row.total_chunks or 0,
+                "campanas": row.campanas or 0,
+                "tipos_envio": row.tipos_envio or 0,
+            }
+        except Exception:
+            return empty
 
     def get_sends_vs_chunks_trend(
         self,
@@ -194,24 +195,27 @@ class SmsDataService:
         page_size: int = 20,
     ) -> Tuple[pd.DataFrame, int]:
         """Paginated SMS detail table with total count."""
-        t = SmsEnvio.__table__
-        w = self._base_where(t, start_date, end_date)
-
-        with engine.connect() as conn:
-            total = conn.execute(select(func.count()).select_from(t).where(w)).scalar() or 0
-
-        stmt = (
-            select(
-                func.date(t.c.sent_at).label("fecha"),
-                t.c.campaign_id, t.c.sending_type,
-                t.c.total_chunks, t.c.is_flash,
+        try:
+            t = SmsEnvio.__table__
+            w = self._base_where(t, start_date, end_date)
+            with engine.connect() as conn:
+                total = conn.execute(
+                    select(func.count()).select_from(t).where(w)
+                ).scalar() or 0
+            stmt = (
+                select(
+                    func.date(t.c.sent_at).label("fecha"),
+                    t.c.campaign_id, t.c.sending_type,
+                    t.c.total_chunks, t.c.is_flash,
+                )
+                .where(w)
+                .order_by(t.c.sent_at.desc())
+                .offset(page * page_size)
+                .limit(page_size)
             )
-            .where(w)
-            .order_by(t.c.sent_at.desc())
-            .offset(page * page_size)
-            .limit(page_size)
-        )
-        return self._exec(stmt), total
+            return self._exec(stmt), total
+        except Exception:
+            return pd.DataFrame(), 0
 
     def get_drill_data(
         self,

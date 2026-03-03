@@ -131,21 +131,23 @@ class GeneralDashboardService:
                 select(func.count().label("cc_conversations")).where(cw)
             ).first()
 
-            st = SmsEnvio.__table__
-            sw = True
-            if start_date and end_date:
-                sw = and_(
-                    func.date(st.c.sent_at) >= start_date,
-                    func.date(st.c.sent_at) <= end_date,
-                )
-            sms_row = conn.execute(
-                select(
-                    func.count().label("sms_total"),
-                    func.sum(case(
-                        (st.c.status == "DELIVRD", 1), else_=0
-                    )).label("sms_delivered"),
-                ).where(sw)
-            ).first()
+            try:
+                st = SmsEnvio.__table__
+                sw = True
+                if start_date and end_date:
+                    sw = and_(
+                        func.date(st.c.sent_at) >= start_date,
+                        func.date(st.c.sent_at) <= end_date,
+                    )
+                sms_row = conn.execute(
+                    select(
+                        func.count().label("sms_total"),
+                        func.coalesce(func.sum(st.c.total_chunks), 0).label("sms_delivered"),
+                    ).where(sw)
+                ).first()
+            except Exception:
+                log.debug("sms_envios table not available, skipping SMS KPIs")
+                sms_row = None
 
             cont_t = Contact.__table__
             cont_w = self._tenant_filter(cont_t, tenant_filter)
@@ -155,8 +157,8 @@ class GeneralDashboardService:
 
         wa_msgs = msg_row.wa_messages or 0
         wa_del = msg_row.wa_delivered or 0
-        sms_total = sms_row.sms_total or 0
-        sms_del = sms_row.sms_delivered or 0
+        sms_total = (sms_row.sms_total or 0) if sms_row else 0
+        sms_del = (sms_row.sms_delivered or 0) if sms_row else 0
         sent = wa_msgs + sms_total
         delivered = wa_del + sms_del
 
@@ -226,19 +228,23 @@ class GeneralDashboardService:
             .group_by(cc_date)
         )
 
-        st = SmsEnvio.__table__
-        sw = True
-        if start_date and end_date:
-            sw = and_(
-                func.date(st.c.sent_at) >= start_date,
-                func.date(st.c.sent_at) <= end_date,
+        try:
+            st = SmsEnvio.__table__
+            sw = True
+            if start_date and end_date:
+                sw = and_(
+                    func.date(st.c.sent_at) >= start_date,
+                    func.date(st.c.sent_at) <= end_date,
+                )
+            sms_date = func.date(st.c.sent_at).label("date")
+            sms_df = self._exec(
+                select(sms_date, func.count().label("SMS"))
+                .where(sw)
+                .group_by(sms_date)
             )
-        sms_date = func.date(st.c.sent_at).label("date")
-        sms_df = self._exec(
-            select(sms_date, func.count().label("SMS"))
-            .where(sw)
-            .group_by(sms_date)
-        )
+        except Exception:
+            log.debug("sms_envios table not available, skipping SMS trend")
+            sms_df = pd.DataFrame()
 
         if wa_df.empty and cc_df.empty and sms_df.empty:
             return pd.DataFrame()
