@@ -112,7 +112,7 @@ class ChartService:
     def _translate_axes(fig):
         """Apply global label translation to all axes titles and trace names."""
         for axis_attr in ("xaxis", "yaxis", "xaxis2", "yaxis2"):
-            ax = fig.layout.get(axis_attr)
+            ax = getattr(fig.layout, axis_attr, None)
             if ax and ax.title and ax.title.text:
                 ax.title.text = translate_label(ax.title.text)
         for trace in fig.data:
