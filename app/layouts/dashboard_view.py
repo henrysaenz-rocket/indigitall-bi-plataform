@@ -1,4 +1,4 @@
-"""Dashboard view page — Widget grid display."""
+"""Dashboard view page — Widget grid display with info modals."""
 
 import dash
 from dash import html, dcc
@@ -14,31 +14,40 @@ dash.register_page(
 
 def layout(dashboard_id=None, **kwargs):
     return dbc.Container([
+        # Stores
+        dcc.Store(id="dv-dashboard-id", data=dashboard_id),
+        dcc.Store(id="dv-cross-filter", storage_type="session"),
+
         # Dashboard header
         html.Div([
             html.Div([
-                html.H2(f"Tablero #{dashboard_id}" if dashboard_id else "Tablero",
-                         className="page-title mb-0"),
-                html.Small("Cargando...", className="text-muted"),
+                html.H2(id="dv-title", children=(
+                    f"Tablero #{dashboard_id}" if dashboard_id else "Tablero"
+                ), className="page-title mb-0"),
+                html.Small(id="dv-subtitle", children="Cargando...",
+                           className="text-muted"),
             ]),
             html.Div([
                 dbc.Button([html.I(className="bi bi-pencil me-1"), "Editar"],
+                           id="dv-edit-btn",
                            outline=True, color="secondary", size="sm", className="me-2"),
-                dbc.Button([html.I(className="bi bi-share me-1"), "Compartir"],
-                           outline=True, color="secondary", size="sm", className="me-2"),
-                dbc.Button(html.I(className="bi bi-star"), outline=True,
-                           color="warning", size="sm"),
+                dbc.Button(html.I(className="bi bi-star"),
+                           id="dv-fav-btn",
+                           outline=True, color="warning", size="sm"),
             ]),
         ], className="d-flex justify-content-between align-items-start mb-4"),
 
-        # Widget grid placeholder
-        html.Div([
-            html.Div([
-                html.I(className="bi bi-grid-1x2 display-4 text-muted"),
-                html.P("Agrega widgets a este tablero desde tus consultas guardadas.",
-                       className="text-muted mt-3"),
-            ], className="text-center py-5"),
-        ], id="dashboard-grid", className="dashboard-grid"),
+        # Cross-filter badge
+        html.Div(id="dv-filter-badge"),
+
+        # Widget grid
+        html.Div(id="dashboard-grid", className="dashboard-grid"),
+
+        # Info modal
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle(id="dv-info-modal-title")),
+            dbc.ModalBody(id="dv-info-modal-body"),
+        ], id="dv-info-modal", size="lg"),
 
         # Floating AI chat button
         dbc.Button(

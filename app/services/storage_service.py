@@ -43,7 +43,9 @@ class StorageService:
 
         stmt = (
             select(t.c.id, t.c.name, t.c.query_text, t.c.ai_function,
-                   t.c.result_row_count, t.c.tags, t.c.is_favorite,
+                   t.c.result_row_count, t.c.result_data, t.c.result_columns,
+                   t.c.visualizations, t.c.generated_sql,
+                   t.c.tags, t.c.is_favorite,
                    t.c.created_by, t.c.created_at, t.c.updated_at)
             .where(and_(*clauses))
             .order_by(t.c.updated_at.desc())

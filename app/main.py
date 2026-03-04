@@ -298,6 +298,7 @@ import app.callbacks.ud_inapp_cb  # noqa: F401
 import app.callbacks.ud_wallet_cb  # noqa: F401
 import app.callbacks.ud_gallery_cb  # noqa: F401
 import app.callbacks.dashboard_view_cb  # noqa: F401
+import app.callbacks.dashboard_builder_cb  # noqa: F401
 import app.callbacks.data_explorer_cb  # noqa: F401
 import app.callbacks.operations_cb  # noqa: F401
 

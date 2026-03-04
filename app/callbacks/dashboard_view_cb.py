@@ -1,31 +1,28 @@
-"""Dashboard view callbacks — load dashboard, render widgets, toggle AI chat."""
-
-import json
+"""Dashboard view callbacks — load, render widgets, info modal, cross-filter, AI chat."""
 
 import pandas as pd
 from dash import (
-    Input, Output, State, callback, html, dcc, no_update, ctx,
+    Input, Output, State, callback, html, dcc, ctx, no_update, ALL,
 )
 import dash_bootstrap_components as dbc
 from dash.exceptions import PreventUpdate
 import plotly.express as px
 
 from app.services.storage_service import StorageService
+from app.services.label_service import get_label
 from app.config import settings
 
 CHART_COLORS = ["#1E88E5", "#76C043", "#A0A3BD", "#42A5F5", "#1565C0", "#FFC107", "#9C27B0", "#FF5722"]
 
-# Static dashboard routes handled by dedicated pages — skip DB lookup for these
 STATIC_DASHBOARD_ROUTES = {
     "visionamos", "contact-center", "bot-performance", "control-toques", "nuevo",
 }
 
 
-def _render_widget(widget):
-    """Render a single dashboard widget card from its config."""
-    widget_type = widget.get("type", "table")
+def _render_widget(widget, index):
+    """Render a single dashboard widget card with info button."""
+    widget_type = widget.get("type") or widget.get("chart_type", "table")
     title = widget.get("title", "Widget")
-    query_id = widget.get("query_id")
     data = widget.get("data", [])
     columns = widget.get("columns", [])
 
@@ -41,32 +38,60 @@ def _render_widget(widget):
     else:
         df = pd.DataFrame(data)
 
-        # Chart
         if widget_type in ("bar", "line", "pie") and len(df.columns) >= 2:
             x_col, y_col = df.columns[0], df.columns[1]
+
+            if df[y_col].dtype == "object":
+                try:
+                    df = df.copy()
+                    df[y_col] = pd.to_numeric(
+                        df[y_col].str.replace(",", "").str.replace("%", ""),
+                        errors="coerce",
+                    )
+                except Exception:
+                    pass
+
+            label_map = {c: get_label(c) for c in df.columns}
+
             if widget_type == "line":
-                fig = px.line(df, x=x_col, y=y_col, color_discrete_sequence=CHART_COLORS)
+                fig = px.line(df, x=x_col, y=y_col, labels=label_map,
+                              color_discrete_sequence=CHART_COLORS)
             elif widget_type == "pie":
-                fig = px.pie(df, names=x_col, values=y_col, color_discrete_sequence=CHART_COLORS)
+                fig = px.pie(df, names=x_col, values=y_col, labels=label_map,
+                             color_discrete_sequence=CHART_COLORS)
             else:
-                fig = px.bar(df, x=x_col, y=y_col, color_discrete_sequence=CHART_COLORS)
+                fig = px.bar(df, x=x_col, y=y_col, labels=label_map,
+                             color_discrete_sequence=CHART_COLORS)
 
             fig.update_layout(
                 template="plotly_white",
                 font_family="Inter, sans-serif",
                 margin=dict(l=10, r=10, t=10, b=10),
                 height=250,
-                showlegend=False,
+                showlegend=widget_type == "pie",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                hoverlabel=dict(
+                    bgcolor="#1A1A2E",
+                    font_size=13,
+                    font_family="Inter, sans-serif",
+                ),
             )
-            body_content.append(dcc.Graph(figure=fig, config={"displayModeBar": False}))
+            body_content.append(
+                dcc.Graph(
+                    id={"type": "dv-widget-chart", "index": index},
+                    figure=fig,
+                    config={"displayModeBar": False},
+                )
+            )
 
-        # Table
         if widget_type == "table" or widget.get("show_table"):
             from dash import dash_table
+            display_columns = columns if columns else list(df.columns) if not df.empty else []
             body_content.append(
                 dash_table.DataTable(
                     data=data[:50],
-                    columns=[{"name": c, "id": c} for c in columns],
+                    columns=[{"name": get_label(c), "id": c} for c in display_columns],
                     page_size=10,
                     style_table={"overflowX": "auto"},
                     style_header={
@@ -87,9 +112,19 @@ def _render_widget(widget):
         dbc.Card([
             dbc.CardHeader([
                 html.Span(title, className="fw-semibold small"),
-            ], className="py-2 px-3 bg-white"),
+                dbc.Button(
+                    html.I(className="bi bi-info-circle"),
+                    id={"type": "dv-widget-info", "index": index},
+                    outline=True, color="secondary", size="sm",
+                    style={"padding": "1px 5px", "fontSize": "11px"},
+                    title="Ver informacion",
+                ),
+            ], className="py-2 px-3 bg-white d-flex justify-content-between align-items-center"),
             dbc.CardBody(body_content, className="p-2"),
-        ], className="dashboard-widget h-100"),
+        ], className="dashboard-widget h-100", style={
+            "borderRadius": "16px", "border": "1px solid #F0F0F5",
+            "boxShadow": "0 2px 12px rgba(0,0,0,0.04)",
+        }),
         md=widget.get("width", 6),
         className="mb-3",
     )
@@ -99,6 +134,8 @@ def _render_widget(widget):
 
 @callback(
     Output("dashboard-grid", "children"),
+    Output("dv-title", "children"),
+    Output("dv-subtitle", "children"),
     Input("url", "pathname"),
     State("tenant-context", "data"),
 )
@@ -106,7 +143,6 @@ def load_dashboard(pathname, tenant):
     if not pathname or not pathname.startswith("/tableros/saved/"):
         raise PreventUpdate
 
-    # Extract dashboard_id from /tableros/saved/<id>
     parts = pathname.strip("/").split("/")
     if len(parts) < 3 or parts[2] == "":
         raise PreventUpdate
@@ -117,22 +153,163 @@ def load_dashboard(pathname, tenant):
     result = svc.get_dashboard(dashboard_id)
 
     if not result:
-        return html.Div([
-            html.I(className="bi bi-exclamation-triangle display-4 text-warning"),
-            html.P("Tablero no encontrado.", className="text-muted mt-3"),
-            dbc.Button("Volver a tableros", href="/tableros", color="primary", size="sm"),
-        ], className="text-center py-5")
+        return (
+            html.Div([
+                html.I(className="bi bi-exclamation-triangle display-4 text-warning"),
+                html.P("Tablero no encontrado.", className="text-muted mt-3"),
+                dbc.Button("Volver a tableros", href="/tableros", color="primary", size="sm"),
+            ], className="text-center py-5"),
+            "Tablero no encontrado",
+            "",
+        )
 
-    layout = result.get("layout") or []
-    if not layout:
-        return html.Div([
-            html.I(className="bi bi-grid-1x2 display-4 text-muted"),
-            html.P("Este tablero no tiene widgets. Agrega consultas guardadas como widgets.",
-                   className="text-muted mt-3"),
-        ], className="text-center py-5")
+    dashboard_name = result.get("name", f"Tablero #{dashboard_id}")
+    description = result.get("description") or ""
+    layout_data = result.get("layout") or []
 
-    widgets = [_render_widget(w) for w in layout]
-    return dbc.Row(widgets, className="g-3")
+    if not layout_data:
+        return (
+            html.Div([
+                html.I(className="bi bi-grid-1x2 display-4 text-muted"),
+                html.P("Este tablero no tiene widgets.",
+                       className="text-muted mt-3"),
+                dbc.Button(
+                    [html.I(className="bi bi-pencil me-1"), "Editar tablero"],
+                    href="/tableros/nuevo",
+                    color="primary", size="sm",
+                ),
+            ], className="text-center py-5"),
+            dashboard_name,
+            description,
+        )
+
+    widgets = [_render_widget(w, i) for i, w in enumerate(layout_data)]
+    return dbc.Row(widgets, className="g-3"), dashboard_name, description
+
+
+# --- Info modal ---
+
+@callback(
+    Output("dv-info-modal", "is_open"),
+    Output("dv-info-modal-title", "children"),
+    Output("dv-info-modal-body", "children"),
+    Input({"type": "dv-widget-info", "index": ALL}, "n_clicks"),
+    State("url", "pathname"),
+    State("tenant-context", "data"),
+    prevent_initial_call=True,
+)
+def show_widget_info(n_clicks_list, pathname, tenant):
+    if not any(n_clicks_list):
+        raise PreventUpdate
+
+    triggered = ctx.triggered_id
+    if not isinstance(triggered, dict):
+        raise PreventUpdate
+
+    idx = triggered["index"]
+
+    # Load dashboard to get widget info
+    if not pathname or not pathname.startswith("/tableros/saved/"):
+        raise PreventUpdate
+
+    parts = pathname.strip("/").split("/")
+    if len(parts) < 3:
+        raise PreventUpdate
+
+    dashboard_id = parts[2]
+    svc = StorageService(tenant_id=tenant or settings.DEFAULT_TENANT)
+    result = svc.get_dashboard(dashboard_id)
+
+    if not result:
+        raise PreventUpdate
+
+    layout_data = result.get("layout") or []
+    if idx >= len(layout_data):
+        raise PreventUpdate
+
+    w = layout_data[idx]
+    title = w.get("title", "Widget")
+    sql = w.get("sql", "")
+    query_text = w.get("query_text", "")
+    query_id = w.get("query_id")
+    chart_type = w.get("type") or w.get("chart_type", "table")
+    data = w.get("data", [])
+
+    body = []
+
+    if query_text:
+        body.append(html.Div([
+            html.Small("Pregunta original:", className="fw-bold text-muted"),
+            html.P(query_text, className="mt-1", style={"fontSize": "14px"}),
+        ], className="mb-3"))
+
+    body.append(html.Div([
+        dbc.Badge(f"Tipo: {chart_type.upper()}", color="primary", className="me-2"),
+        dbc.Badge(f"{len(data)} filas", color="info", className="me-2"),
+    ], className="mb-3"))
+
+    if sql:
+        body.append(html.Div([
+            html.Small("SQL generado:", className="fw-bold text-muted"),
+            html.Pre(sql, className="bg-light p-3 rounded small mt-1"),
+        ], className="mb-3"))
+
+    if query_id:
+        body.append(
+            dbc.Button(
+                [html.I(className="bi bi-box-arrow-up-right me-1"), "Ir a la consulta"],
+                href=f"/consultas/nueva?rerun={query_id}",
+                color="primary", size="sm",
+                style={"borderRadius": "8px"},
+            )
+        )
+
+    if not body:
+        body.append(html.P("No hay informacion disponible.", className="text-muted"))
+
+    return True, title, html.Div(body)
+
+
+# --- Cross-filter: click on chart stores filter ---
+
+@callback(
+    Output("dv-cross-filter", "data"),
+    Output("dv-filter-badge", "children"),
+    Input({"type": "dv-widget-chart", "index": ALL}, "clickData"),
+    Input("dv-clear-filter", "n_clicks") if False else Input("url", "pathname"),
+    State("dv-cross-filter", "data"),
+    prevent_initial_call=True,
+)
+def handle_cross_filter(click_data_list, pathname, current_filter):
+    triggered = ctx.triggered_id
+
+    # Clear filter on navigation
+    if triggered == "url":
+        return None, ""
+
+    # Handle chart click
+    if isinstance(triggered, dict) and triggered.get("type") == "dv-widget-chart":
+        for cd in click_data_list:
+            if cd and cd.get("points"):
+                point = cd["points"][0]
+                label = point.get("x") or point.get("label", "")
+                if label:
+                    filter_data = {"column": "x", "value": str(label), "index": triggered["index"]}
+                    badge = dbc.Alert([
+                        html.I(className="bi bi-funnel me-2"),
+                        f"Filtro activo: {label}",
+                        dbc.Button(
+                            html.I(className="bi bi-x"),
+                            id="dv-clear-filter-btn",
+                            outline=True, color="light", size="sm",
+                            className="ms-2",
+                            style={"padding": "0 4px"},
+                        ),
+                    ], color="info", className="mb-3 d-flex align-items-center py-2",
+                       style={"fontSize": "13px"})
+                    return filter_data, badge
+
+    return no_update, no_update
 
 
 # --- Toggle AI chat offcanvas ---

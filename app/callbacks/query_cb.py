@@ -74,14 +74,16 @@ def _auto_chart(df, chart_type=None):
         if df[y_col].isna().all():
             return None
 
+    label_map = {c: get_label(c) for c in df.columns}
+
     if chart_type == "line" or "date" in x_col.lower() or "fecha" in x_col.lower():
-        fig = px.line(df, x=x_col, y=y_col, color_discrete_sequence=CHART_COLORS)
+        fig = px.line(df, x=x_col, y=y_col, labels=label_map, color_discrete_sequence=CHART_COLORS)
     elif chart_type == "pie" or len(df) <= 8:
-        fig = px.pie(df, names=x_col, values=y_col, color_discrete_sequence=CHART_COLORS)
+        fig = px.pie(df, names=x_col, values=y_col, labels=label_map, color_discrete_sequence=CHART_COLORS)
     elif chart_type == "bar" or df[y_col].dtype in ("int64", "float64"):
-        fig = px.bar(df, x=x_col, y=y_col, color_discrete_sequence=CHART_COLORS)
+        fig = px.bar(df, x=x_col, y=y_col, labels=label_map, color_discrete_sequence=CHART_COLORS)
     else:
-        fig = px.bar(df, x=x_col, y=y_col, color_discrete_sequence=CHART_COLORS)
+        fig = px.bar(df, x=x_col, y=y_col, labels=label_map, color_discrete_sequence=CHART_COLORS)
 
     fig.update_layout(
         template="plotly_white",
@@ -463,3 +465,82 @@ def save_query(n_clicks, query_data, tenant):
     if result.get("success"):
         return [html.I(className="bi bi-check me-1"), "Guardado"]
     return [html.I(className="bi bi-bookmark me-1"), "Guardar"]
+
+
+# --- Re-run from URL ---
+
+@callback(
+    Output("chat-input", "value", allow_duplicate=True),
+    Output("chat-send-btn", "n_clicks", allow_duplicate=True),
+    Input("query-url", "search"),
+    State("chat-send-btn", "n_clicks"),
+    State("tenant-context", "data"),
+    prevent_initial_call=True,
+)
+def rerun_from_url(search, current_n, tenant):
+    """If URL has ?rerun=<id>, load the query and auto-execute."""
+    if not search or "rerun=" not in search:
+        raise PreventUpdate
+
+    import urllib.parse
+    params = urllib.parse.parse_qs(search.lstrip("?"))
+    rerun_id = params.get("rerun", [None])[0]
+    if not rerun_id:
+        raise PreventUpdate
+
+    svc = StorageService(tenant_id=tenant or settings.DEFAULT_TENANT)
+    query = svc.get_query(int(rerun_id))
+    if not query:
+        raise PreventUpdate
+
+    return query["query_text"], (current_n or 0) + 1
+
+
+# --- Toggle history panel ---
+
+@callback(
+    Output("query-history-collapse", "is_open"),
+    Input("query-history-toggle", "n_clicks"),
+    State("query-history-collapse", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_history(n_clicks, is_open):
+    return not is_open
+
+
+# --- Load recent history ---
+
+@callback(
+    Output("query-recent-history", "children"),
+    Input("query-history-toggle", "n_clicks"),
+    State("tenant-context", "data"),
+    prevent_initial_call=True,
+)
+def load_recent_history(n_clicks, tenant):
+    svc = StorageService(tenant_id=tenant or settings.DEFAULT_TENANT)
+    result = svc.list_queries(limit=5)
+
+    if not result["queries"]:
+        return html.Small("No hay consultas recientes.", className="text-muted")
+
+    items = []
+    for q in result["queries"]:
+        items.append(
+            dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.Small(q["name"][:60], className="fw-semibold",
+                                   style={"fontSize": "12px"}),
+                        dbc.Button(
+                            html.I(className="bi bi-arrow-repeat"),
+                            href=f"/consultas/nueva?rerun={q['id']}",
+                            outline=True, color="primary", size="sm",
+                            className="ms-auto",
+                            style={"padding": "2px 6px"},
+                        ),
+                    ], className="d-flex align-items-center"),
+                ], className="py-1 px-2"),
+            ], className="mb-1", style={"borderRadius": "8px", "border": "1px solid #F0F0F5"})
+        )
+
+    return html.Div(items)

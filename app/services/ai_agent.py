@@ -70,6 +70,17 @@ class AIAgent:
         """Check if any AI provider is available."""
         return self.client is not None or self.openai_client is not None
 
+    @staticmethod
+    def _friendly_error(message: str) -> Dict[str, Any]:
+        """Return a user-friendly error as a conversation response."""
+        return {
+            "type": "conversation",
+            "response": message,
+            "data": None,
+            "chart_type": None,
+            "query_details": None,
+        }
+
     # ------------------------------------------------------------------
     # System prompt
     # ------------------------------------------------------------------
@@ -92,6 +103,7 @@ Clasifica cada mensaje en UNA de estas categorías:
 1. CONVERSATION — Saludos, despedidas, agradecimientos, preguntas sobre ti
 2. ANALYTICS — Preguntas sobre datos que requieren una función de análisis
 3. SQL — Preguntas complejas que NO cubren las funciones pre-built
+4. CLARIFICATION — Cuando la pregunta es ambigua o necesitas más información
 
 === FORMATO DE RESPUESTA ===
 SIEMPRE responde con JSON válido. Sin texto fuera del JSON.
@@ -104,6 +116,9 @@ Para ANALYTICS (funciones pre-built):
 
 Para SQL (consultas ad-hoc):
 {{"type": "sql", "query": "SELECT ... FROM ... WHERE tenant_id = '{{TENANT_ID}}' ...", "explanation": "Qué muestra esta consulta"}}
+
+Para CLARIFICATION (cuando necesitas más info):
+{{"type": "clarification", "response": "Tu pregunta específica para el usuario"}}
 
 === FUNCIONES DISPONIBLES ===
 IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
@@ -136,6 +151,7 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
 3. Si no estás seguro qué función usar, usa "summary"
 4. SIEMPRE agrega un insight de negocio en explanation
 5. Responde en español, profesional pero accesible
+6. Si la pregunta es ambigua o le falta contexto, usa "clarification" para pedir más información antes de ejecutar
 """
 
     # ------------------------------------------------------------------
@@ -153,7 +169,10 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
             return self._process_query_inner(user_question, conversation_history, tenant_filter)
         except Exception as e:
             logger.error("Unexpected error in process_query: %s", e)
-            return self._demo_mode_query(user_question, tenant_filter)
+            return self._friendly_error(
+                "Ocurrio un error inesperado procesando tu consulta. "
+                "Por favor intenta reformular tu pregunta o intenta de nuevo en unos momentos."
+            )
 
     def _process_query_inner(
         self,
@@ -240,6 +259,16 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
                     "query_details": None,
                 }
 
+            # --- Clarification ---
+            if resp_type == "clarification":
+                return {
+                    "type": "conversation",
+                    "response": response_json.get("response", ""),
+                    "data": None,
+                    "chart_type": None,
+                    "query_details": None,
+                }
+
             # --- Analytics (pre-built function) ---
             if resp_type == "analytics":
                 function_name = response_json.get("function", "summary")
@@ -263,6 +292,24 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
             # Unrecognized type
             return None
 
+        except anthropic.AuthenticationError:
+            logger.warning("Anthropic authentication failed")
+            return self._friendly_error(
+                "Hay un problema con la configuracion del servicio de IA. "
+                "Por favor contacta al administrador."
+            )
+        except anthropic.RateLimitError:
+            logger.warning("Anthropic rate limit reached")
+            return self._friendly_error(
+                "El servicio de IA esta temporalmente ocupado. "
+                "Por favor intenta de nuevo en unos segundos."
+            )
+        except anthropic.APIConnectionError:
+            logger.warning("Anthropic connection failed")
+            return self._friendly_error(
+                "No se pudo conectar con el servicio de IA. "
+                "Verifica tu conexion a internet e intenta de nuevo."
+            )
         except anthropic.APIError as e:
             logger.warning("Anthropic API error: %s", e)
             return None
@@ -321,6 +368,15 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
                     "query_details": None,
                 }
 
+            if resp_type == "clarification":
+                return {
+                    "type": "conversation",
+                    "response": response_json.get("response", ""),
+                    "data": None,
+                    "chart_type": None,
+                    "query_details": None,
+                }
+
             if resp_type == "analytics":
                 function_name = response_json.get("function", "summary")
                 explanation = response_json.get("explanation", "")
@@ -341,6 +397,24 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
 
             return None
 
+        except openai.AuthenticationError:
+            logger.warning("OpenAI authentication failed")
+            return self._friendly_error(
+                "Hay un problema con la configuracion del servicio de IA. "
+                "Por favor contacta al administrador."
+            )
+        except openai.RateLimitError:
+            logger.warning("OpenAI rate limit reached")
+            return self._friendly_error(
+                "El servicio de IA esta temporalmente ocupado. "
+                "Por favor intenta de nuevo en unos segundos."
+            )
+        except openai.APIConnectionError:
+            logger.warning("OpenAI connection failed")
+            return self._friendly_error(
+                "No se pudo conectar con el servicio de IA. "
+                "Verifica tu conexion a internet e intenta de nuevo."
+            )
         except Exception as e:
             logger.warning("OpenAI query failed: %s", e)
             return None

@@ -1,4 +1,4 @@
-"""Query page — AI chat (left) + Results (right)."""
+"""Query page — AI chat (left) + Results (right) + re-run support."""
 
 import dash
 from dash import html, dcc
@@ -20,6 +20,9 @@ SUGGESTIONS = [
 ]
 
 layout = dbc.Container([
+    # URL location for re-run support
+    dcc.Location(id="query-url", refresh=False),
+
     dbc.Row([
         # Left panel: AI Chat (35%)
         dbc.Col([
@@ -68,6 +71,23 @@ layout = dbc.Container([
                     ),
                 ], className="chat-input-group"),
             ], className="chat-panel"),
+
+            # Recent history panel (collapsible)
+            html.Div([
+                html.Hr(className="my-3"),
+                dbc.Button(
+                    [html.I(className="bi bi-clock-history me-2"), "Historial Reciente"],
+                    id="query-history-toggle",
+                    outline=True, color="secondary", size="sm",
+                    className="w-100 mb-2",
+                    style={"borderRadius": "8px"},
+                ),
+                dbc.Collapse(
+                    html.Div(id="query-recent-history", className="mt-2"),
+                    id="query-history-collapse",
+                    is_open=False,
+                ),
+            ]),
         ], width=5, className="chat-column"),
 
         # Right panel: Results (65%)

@@ -139,23 +139,33 @@ def _build_gallery():
                 md=4, sm=6, xs=12,
             ),
             dbc.Col(
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="bi bi-plus-circle-dotted",
-                                   style={"fontSize": "32px", "color": "#A0A3BD"}),
-                        ], className="mb-3"),
-                        html.H5("Nuevo Tablero", style={"fontWeight": "600", "color": "#A0A3BD"}),
-                        html.P("Crea un tablero personalizado con tus metricas",
-                               style={"fontSize": "13px", "color": "#A0A3BD"}),
-                    ], style={"padding": "24px"}),
-                ], style={
-                    "borderRadius": "16px", "cursor": "pointer",
-                    "border": "2px dashed #E4E4E7",
-                }),
+                html.A(
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.Div([
+                                html.I(className="bi bi-plus-circle-dotted",
+                                       style={"fontSize": "32px", "color": "#A0A3BD"}),
+                            ], className="mb-3"),
+                            html.H5("Nuevo Tablero", style={"fontWeight": "600", "color": "#A0A3BD"}),
+                            html.P("Crea un tablero personalizado con tus metricas",
+                                   style={"fontSize": "13px", "color": "#A0A3BD"}),
+                        ], style={"padding": "24px"}),
+                    ], style={
+                        "borderRadius": "16px", "cursor": "pointer",
+                        "border": "2px dashed #E4E4E7",
+                    }),
+                    href="/tableros/nuevo",
+                    className="text-decoration-none",
+                ),
                 md=4, sm=6, xs=12,
             ),
         ], className="g-3"),
+
+        # Custom dashboards from DB
+        html.Hr(className="my-4"),
+        html.H5("Tableros Guardados", className="mb-3",
+                 style={"fontWeight": "600", "color": "#1A1A2E"}),
+        html.Div(id="custom-dashboards-grid"),
     ])
 
 
