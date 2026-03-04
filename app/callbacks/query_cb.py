@@ -128,6 +128,9 @@ def _fetch_full_source_table(table_name, tenant):
             "messages", "contacts", "agents", "daily_stats",
             "chat_conversations", "chat_channels", "chat_topics",
             "campaigns", "toques_daily", "toques_heatmap", "toques_usuario",
+            "fact_message_events", "dim_date", "dim_time", "dim_channel",
+            "dim_event_type", "dim_tenant", "dim_contact", "dim_agent",
+            "dim_campaign", "dim_conversation",
         }
         if table_name not in safe_tables:
             table_name = "messages"
@@ -392,6 +395,7 @@ def send_message(n_clicks, n_submit, message, tenant, history):
         "columns": list(df.columns) if not df.empty else [],
         "row_count": len(df),
         "explanation": explanation,
+        "query_details": query_details,
     }
 
     has_data = not df.empty
@@ -454,11 +458,16 @@ def save_query(n_clicks, query_data, tenant):
     df = pd.DataFrame(query_data["data"])
 
     name = query_data.get("query_text", "Consulta")[:80]
+    generated_sql = None
+    if query_data.get("query_details") and query_data["query_details"].get("sql"):
+        generated_sql = query_data["query_details"]["sql"]
+
     result = svc.save_query(
         name=name,
         query_text=query_data["query_text"],
         data=df,
         ai_function=query_data.get("ai_function"),
+        generated_sql=generated_sql,
         visualizations=[{"type": query_data.get("chart_type") or "table", "is_default": True}],
     )
 

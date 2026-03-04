@@ -92,18 +92,24 @@ class DashboardAIService:
             f"Solicitud del usuario: {message}"
         )
 
-        # Try Anthropic first
-        if self.anthropic_client:
-            result = self._anthropic_suggest(user_msg)
-            if result:
-                return result
-
-        # Try OpenAI
+        # Try OpenAI first (preferred — key always configured)
         if self.openai_client:
             result = self._openai_suggest(user_msg)
             if result:
                 return result
 
+        # Try Anthropic as fallback
+        if self.anthropic_client:
+            result = self._anthropic_suggest(user_msg)
+            if result:
+                return result
+
+        logger.warning(
+            "No AI provider available. openai_available=%s, has_openai_key=%s, "
+            "anthropic_available=%s, has_ai_key=%s",
+            OPENAI_AVAILABLE, settings.has_openai_key,
+            ANTHROPIC_AVAILABLE, settings.has_ai_key,
+        )
         return {
             "response": (
                 "No tengo acceso al servicio de IA en este momento. "

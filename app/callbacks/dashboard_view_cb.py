@@ -63,11 +63,15 @@ def _render_widget(widget, index):
                 fig = px.bar(df, x=x_col, y=y_col, labels=label_map,
                              color_discrete_sequence=CHART_COLORS)
 
+            # Determine chart height based on widget width
+            width = widget.get("width", 6)
+            chart_height = 300 if width <= 4 else 350 if width <= 6 else 400
+
             fig.update_layout(
                 template="plotly_white",
                 font_family="Inter, sans-serif",
-                margin=dict(l=10, r=10, t=10, b=10),
-                height=250,
+                margin=dict(l=50, r=20, t=20, b=60),
+                height=chart_height,
                 showlegend=widget_type == "pie",
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
@@ -76,6 +80,8 @@ def _render_widget(widget, index):
                     font_size=13,
                     font_family="Inter, sans-serif",
                 ),
+                xaxis=dict(automargin=True, tickangle=-45 if len(df) > 6 else 0),
+                yaxis=dict(automargin=True),
             )
             body_content.append(
                 dcc.Graph(
@@ -254,15 +260,33 @@ def show_widget_info(n_clicks_list, pathname, tenant):
             html.Pre(sql, className="bg-light p-3 rounded small mt-1"),
         ], className="mb-3"))
 
+    buttons = []
     if query_id:
-        body.append(
+        buttons.append(
             dbc.Button(
                 [html.I(className="bi bi-box-arrow-up-right me-1"), "Ir a la consulta"],
                 href=f"/consultas/nueva?rerun={query_id}",
                 color="primary", size="sm",
                 style={"borderRadius": "8px"},
+                className="me-2",
             )
         )
+    elif query_text:
+        # No saved query, but has original question — allow re-running in chat
+        import urllib.parse
+        encoded_q = urllib.parse.quote(query_text)
+        buttons.append(
+            dbc.Button(
+                [html.I(className="bi bi-chat-dots me-1"), "Repetir consulta"],
+                href=f"/consultas/nueva",
+                color="primary", size="sm",
+                style={"borderRadius": "8px"},
+                className="me-2",
+            )
+        )
+
+    if buttons:
+        body.append(html.Div(buttons, className="d-flex"))
 
     if not body:
         body.append(html.P("No hay informacion disponible.", className="text-muted"))

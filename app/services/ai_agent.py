@@ -35,9 +35,20 @@ except ImportError:
 # --- SQL Guardrails ---
 
 ALLOWED_TABLES = frozenset({
+    # Core tables (public schema)
     "messages", "contacts", "agents", "daily_stats",
     "toques_daily", "campaigns", "toques_heatmap", "toques_usuario",
     "chat_conversations", "chat_channels", "chat_topics",
+    # Analytics star schema (public_analytics schema)
+    "fact_message_events", "dim_date", "dim_time", "dim_channel",
+    "dim_event_type", "dim_tenant", "dim_contact", "dim_agent",
+    "dim_campaign", "dim_conversation",
+    # Schema-qualified names
+    "public_analytics.fact_message_events", "public_analytics.dim_date",
+    "public_analytics.dim_time", "public_analytics.dim_channel",
+    "public_analytics.dim_event_type", "public_analytics.dim_tenant",
+    "public_analytics.dim_contact", "public_analytics.dim_agent",
+    "public_analytics.dim_campaign", "public_analytics.dim_conversation",
 })
 
 SQL_BLOCKLIST = re.compile(
@@ -139,7 +150,9 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
 
 === REGLAS PARA SQL ===
 - Solo SELECT (no INSERT, UPDATE, DELETE, DROP, etc.)
-- Solo estas tablas: {', '.join(sorted(ALLOWED_TABLES))}
+- Tablas core (esquema public): messages, contacts, agents, daily_stats, chat_conversations, campaigns, toques_daily, toques_heatmap
+- Tablas analytics (esquema public_analytics): public_analytics.fact_message_events, public_analytics.dim_date, public_analytics.dim_time, public_analytics.dim_channel, public_analytics.dim_event_type, public_analytics.dim_contact, public_analytics.dim_agent, public_analytics.dim_campaign, public_analytics.dim_conversation
+- SIEMPRE usar prefijo public_analytics. para tablas del star schema
 - SIEMPRE incluir WHERE tenant_id = '{{TENANT_ID}}'
 - SIEMPRE incluir LIMIT (máximo 1000)
 - Usa aggregate functions cuando sea posible
@@ -189,19 +202,20 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
         if any(ind in question_lower for ind in high_msg_indicators):
             return self._handle_high_messages(question_lower, tenant_filter)
 
-        # Anthropic Claude (primary)
-        if self.client is not None:
-            result = self._ai_query(user_question, conversation_history, tenant_filter)
-            if result is not None:
-                return result
-
-        # OpenAI GPT-4o-mini (fallback)
+        # OpenAI GPT-4o-mini (preferred — always available)
         if self.openai_client is not None:
             result = self._openai_query(user_question, conversation_history, tenant_filter)
             if result is not None:
                 return result
 
-        # Demo mode (keyword matching)
+        # Anthropic Claude (secondary)
+        if self.client is not None:
+            result = self._ai_query(user_question, conversation_history, tenant_filter)
+            if result is not None:
+                return result
+
+        # No AI provider available — use demo mode as last resort
+        logger.warning("No AI provider available, falling back to demo mode")
         return self._demo_mode_query(user_question, tenant_filter)
 
     # ------------------------------------------------------------------
@@ -416,8 +430,11 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
                 "Verifica tu conexion a internet e intenta de nuevo."
             )
         except Exception as e:
-            logger.warning("OpenAI query failed: %s", e)
-            return None
+            logger.error("OpenAI query failed: %s", e)
+            return self._friendly_error(
+                f"Ocurrio un error con el servicio de IA: {str(e)[:150]}. "
+                "Por favor intenta de nuevo."
+            )
 
     # ------------------------------------------------------------------
     # Guarded SQL execution (Task 4.2)
@@ -442,9 +459,9 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
             return self._sql_error("La consulta contiene operaciones no permitidas.")
 
         # 3. Only allowed tables
-        # Extract table names from FROM and JOIN clauses
+        # Extract table names from FROM and JOIN clauses (supports schema.table)
         table_pattern = re.compile(
-            r"(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)", re.IGNORECASE
+            r"(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_.]*)", re.IGNORECASE
         )
         referenced_tables = {m.lower() for m in table_pattern.findall(sql)}
         disallowed = referenced_tables - ALLOWED_TABLES
@@ -467,9 +484,9 @@ IMPORTANTE: Solo puedes usar estas funciones exactas. No inventes otras.
                     count=1,
                 )
             else:
-                # Find FROM clause and add WHERE after table name
+                # Find FROM clause and add WHERE after table name (supports schema.table)
                 sql = re.sub(
-                    r"(?i)(FROM\s+[a-zA-Z_][a-zA-Z0-9_]*)",
+                    r"(?i)(FROM\s+[a-zA-Z_][a-zA-Z0-9_.]*)",
                     rf"\1 WHERE tenant_id = '{tenant}'",
                     sql,
                     count=1,

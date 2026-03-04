@@ -16,7 +16,7 @@ from app.config import settings
 CHART_COLORS = ["#1E88E5", "#76C043", "#A0A3BD", "#42A5F5", "#1565C0", "#FFC107", "#9C27B0", "#FF5722"]
 
 
-def _render_widget_chart(data, chart_type, height=250):
+def _render_widget_chart(data, chart_type, height=300):
     """Render a chart from query result data."""
     if not data:
         return html.Div(
@@ -55,12 +55,14 @@ def _render_widget_chart(data, chart_type, height=250):
     fig.update_layout(
         template="plotly_white",
         font_family="Inter, sans-serif",
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=50, r=20, t=20, b=60),
         height=height,
         showlegend=chart_type == "pie",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         hoverlabel=dict(bgcolor="#1A1A2E", font_size=13, font_family="Inter"),
+        xaxis=dict(automargin=True),
+        yaxis=dict(automargin=True),
     )
 
     return dcc.Graph(figure=fig, config={"displayModeBar": False})
@@ -209,6 +211,7 @@ def add_widget(n_clicks_list, widgets, tenant):
     widget = {
         "query_id": query_id,
         "title": query["name"][:60],
+        "type": chart_type,
         "chart_type": chart_type,
         "width": 6,
         "data": query.get("result_data") or [],
@@ -358,6 +361,7 @@ def pre_load_query(search, widgets, tenant):
     widget = {
         "query_id": int(query_id),
         "title": query["name"][:60],
+        "type": chart_type,
         "chart_type": chart_type,
         "width": 6,
         "data": query.get("result_data") or [],
